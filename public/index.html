@@ -81,7 +81,7 @@
     // 加载文件列表
     async function loadFiles() {
       try {
-        const response = await fetch('/api/browse', {
+        const response = await fetch('/browse', {
           headers: {
             'Authorization': `Bearer ${AUTH_TOKEN}`
           }
@@ -111,7 +111,7 @@
         
         fileItem.innerHTML = `
           <div class="file-preview">
-            <img src="/api/file/${encodeURIComponent(file.name)}?thumb=true" 
+            <img src="/file/${encodeURIComponent(file.name)}?thumb=true" 
                  alt="${file.name}" 
                  onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"300\" height=\"200\"><rect width=\"100%\" height=\"100%\" fill=\"%23f0f0f0\"/><text x=\"50%\" y=\"50%\" font-family=\"Arial\" font-size=\"14\" fill=\"%23999\" text-anchor=\"middle\" dy=\".3em\">${file.name}</text></svg>'">
           </div>
@@ -146,7 +146,7 @@
       }
       
       try {
-        const response = await fetch(`/api/delete/${encodeURIComponent(fileName)}`, {
+        const response = await fetch(`/delete/${encodeURIComponent(fileName)}`, {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${AUTH_TOKEN}`,
@@ -175,11 +175,11 @@
     
     // 其他辅助函数...
     function viewFile(fileName) {
-      window.open(`/api/file/${encodeURIComponent(fileName)}`, '_blank');
+      window.open(`/file/${encodeURIComponent(fileName)}`, '_blank');
     }
     
     function downloadFile(fileName) {
-      window.location.href = `/api/file/${encodeURIComponent(fileName)}?download=true`;
+      window.location.href = `/file/${encodeURIComponent(fileName)}?download=true`;
     }
   </script>
 </body>
