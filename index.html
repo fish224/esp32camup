@@ -506,13 +506,13 @@
                 
                 let thumbnailHtml = '';
                 if (isImage) {
-                    thumbnailHtml = `
-                        <img src="/thumbnail/${encodeURIComponent(file.name)}?size=300" 
-                             alt="${file.name}" 
-                             class="thumbnail"
-                             loading="lazy"
-                             onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"300\" height=\"200\"><rect width=\"100%\" height=\"100%\" fill=\"%23f0f0f0\"/><text x=\"50%\" y=\"50%\" font-family=\"Arial\" font-size=\"24\" fill=\"%23999\" text-anchor=\"middle\" dy=\".3em\">图片</text></svg>'">
-                    `;
+                    // 生成带认证的缩略图URL（通过Service Worker转发）
+    thumbnailHtml = `
+        <img src="/file/${encodeURIComponent(file.name)}?thumb=true" 
+             class="thumbnail" 
+             alt="${file.name}"
+             onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzAwMCIgZD0iTTIyIDEwVjE4YTIgMiAwIDAgMS0yIDJoLTZWMmEyIDIgMCAwIDAtMi0yHjJBMiAyIDAgMCAwIDIgNHYxNGg2djZoNWEyIDIgMCAwIDEgMiAydjloMkg0YTIgMiAwIDAgMS0yLTJWNmEyIDIgMCAwIDEgMi0yaDE0YTIgMiAwIDAgMSAyIDJ6bTAtMTBoLTZ2NGgtNHYtNGgtMnY0aC00di00SDJ2NGgydjloMTR2LTRoMnptNCAxMkg2djJoMTJ6Ii8+PC9zdmc+'">
+    `;
                 } else if (isVideo) {
                     thumbnailHtml = `
                         <div class="thumbnail">
