@@ -1,4 +1,20 @@
 {
   "version": 1,
-  "include": ["/upload","/browse","/thumbnail/*","/file/*","/auth","/delete/*"]
+  "include": [
+    "/auth",
+    "/browse",
+    "/thumbnail/*",
+    "/file/*",
+    "/upload",
+    "/delete/*"
+  ],
+  "exclude": [
+    "/assets/*",
+    "/*.html",
+    "/*.css",
+    "/*.js",
+    "/*.png",
+    "/*.jpg",
+    "/*.ico"
+  ]
 }
