@@ -1,106 +1,65 @@
 // functions/browse.js
 export async function onRequestGet(context) {
-  const { request, env } = context;
-  const url = new URL(request.url);
-  
   try {
-    // 验证认证令牌
-    const authHeader = request.headers.get('Authorization');
+    // 1. 认证校验（与前端 token 一致）
+    const authHeader = context.request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: '未授权' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      return new Response(JSON.stringify({
+        success: false,
+        error: '未授权，请先登录'
+      }), { status: 401, headers: { 'Content-Type': 'application/json' } });
     }
-    
+
     const token = authHeader.split(' ')[1];
-    const validToken = env.AUTH_TOKEN || '888';
-    
+    const validToken = context.env.AUTH_TOKEN || '888'; // 与前端保持一致
     if (token !== validToken) {
-      return new Response(JSON.stringify({ error: '无效的认证令牌' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      return new Response(JSON.stringify({
+        success: false,
+        error: '无效的认证令牌'
+      }), { status: 401, headers: { 'Content-Type': 'application/json' } });
     }
+
+    // 2. 读取 R2 桶文件列表（关键：确保桶名称与配置一致）
+    const bucket = context.env.MY_R2_BUCKET; // 必须与 Cloudflare 配置的 R2 桶绑定变量名一致
+    const files = [];
     
-    // 获取查询参数
-    const page = parseInt(url.searchParams.get('page')) || 1;
-    const limit = parseInt(url.searchParams.get('limit')) || 20;
-    const fileType = url.searchParams.get('type') || 'all';
-    const sortBy = url.searchParams.get('sort') || 'newest';
-    const searchTerm = url.searchParams.get('search') || '';
-    
-    // 从 R2 存储桶获取文件列表
-    const listOptions = {
-      limit: limit,
-      prefix: searchTerm || undefined,
-    };
-    
-    const listed = await env.MY_R2_BUCKET.list(listOptions);
-    
-    // 处理文件列表
-    let files = listed.objects.map(obj => ({
-      name: obj.key,
-      size: obj.size,
-      uploaded: obj.uploaded,
-      etag: obj.etag,
-      httpMetadata: obj.httpMetadata
-    }));
-    
-    // 按文件类型过滤
-    if (fileType !== 'all') {
-      files = files.filter(file => {
-        if (fileType === 'image') {
-          return file.name.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i);
-        } else if (fileType === 'video') {
-          return file.name.match(/\.(mp4|avi|mov|webm|mkv)$/i);
+    // 分页读取所有文件（R2 list 接口默认分页，需循环读取）
+    let cursor = undefined;
+    do {
+      const listResult = await bucket.list({
+        cursor: cursor,
+        limit: 100 // 单次读取 100 个文件，可调整
+      });
+
+      // 提取文件名称（仅保留文件，过滤目录）
+      for (const obj of listResult.objects) {
+        if (!obj.key.endsWith('/')) { // 排除目录（如果有）
+          files.push({
+            name: obj.key, // 核心：返回原始文件名（未编码）
+            size: obj.size,
+            uploaded: obj.uploaded
+          });
         }
-        return true;
-      });
-    }
-    
-    // 排序
-    files.sort((a, b) => {
-      switch (sortBy) {
-        case 'oldest':
-          return new Date(a.uploaded) - new Date(b.uploaded);
-        case 'name':
-          return a.name.localeCompare(b.name);
-        case 'size':
-          return a.size - b.size;
-        case 'newest':
-        default:
-          return new Date(b.uploaded) - new Date(a.uploaded);
       }
-    });
-    
-    // 分页
-    const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
-    const paginatedFiles = files.slice(startIndex, endIndex);
-    
-    return new Response(JSON.stringify({
-      success: true,
-      files: paginatedFiles,
-      total: files.length,
-      page: page,
-      totalPages: Math.ceil(files.length / limit),
-      pageSize: limit
-    }), {
+
+      cursor = listResult.truncated ? listResult.cursor : undefined;
+    } while (cursor);
+
+    // 3. 返回文件列表（前端直接使用原始文件名）
+    return new Response(JSON.stringify(files), {
       headers: {
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache'
-      }
+        'Access-Control-Allow-Origin': '*' // 解决跨域（必要）
+      },
+      status: 200
     });
-    
+
   } catch (error) {
+    console.error('读取 R2 文件列表失败:', error);
     return new Response(JSON.stringify({
       success: false,
-      error: '获取文件列表失败',
+      error: '读取文件列表失败',
       details: error.message
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }
