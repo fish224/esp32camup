@@ -60,6 +60,14 @@ export async function onRequestGet(context) {
     
     // 设置响应头
     const headers = new Headers();
+    // 允许前端域名访问
+headers.set('Access-Control-Allow-Origin', 'https://esp32camup.pages.dev');
+// 允许前端传递 Authorization 头（关键：否则 Service Worker 添加的头会被拒绝）
+headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+// 允许的请求方法
+headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+// 允许跨域请求携带凭证（如果需要）
+headers.set('Access-Control-Allow-Credentials', 'true');
     const contentType = object.httpMetadata?.contentType || getContentType(filename);
     headers.set('Content-Type', contentType);
     
