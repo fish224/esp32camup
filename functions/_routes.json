@@ -3,7 +3,6 @@
   "include": [
     "/auth",
     "/browse",
-    "/thumbnail/*",
     "/file/*",
     "/upload",
     "/delete/*"
