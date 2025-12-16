@@ -1,4 +1,4 @@
 {
   "version": 1,
-  "include": ["/upload"]
+  "include": ["/upload","/browse"/thumbnail/*","/file/*","/auth"]
 }
