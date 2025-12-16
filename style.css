@@ -1,0 +1,19 @@
+/* style.css */
+/* 缩略图图片自适应样式 */
+.thumbnail-img {
+  max-width: 100%; /* 不超过父容器宽度 */
+  height: auto; /* 自动保持宽高比，避免变形 */
+  object-fit: cover; /* 图片在容器内居中裁剪，保持比例 */
+  border-radius: 4px; /* 可选：添加圆角 */
+}
+
+/* 缩略图容器样式（确保图片有固定展示区域） */
+.thumbnail {
+  width: 80px; /* 缩略图容器宽度 */
+  height: 80px; /* 缩略图容器高度 */
+  overflow: hidden; /* 超出容器的部分隐藏 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f5f5f5; /* 背景色，图片加载前显示 */
+}
