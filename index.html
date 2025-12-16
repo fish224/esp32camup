@@ -314,16 +314,16 @@
                 let thumbnailHtml = '';
                 if (isImage) {
                     // 图片文件：请求缩略图（带 thumb=true 参数）
-                    thumbnailHtml = `
-                        <div class="thumbnail">
-                            <img 
-                                src="/file/${encodeURIComponent(file.name)}?thumb=true" 
-                                class="thumbnail-img" 
-                                alt="${file.name}"
-                                onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzY2NiIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMC00LjQ4LTEwLTEwLTEwUzE3LjUyIDIgMTIgMnptMCAxOWMtNC40MSAwLTgtMy41OS04LThzMy41OS04IDgtOCA4IDMuNTkgOCA4LTMuNTkgOC04IDh6bTAtMTFjLTEuMSAwLTIgLjktMiAycy45IDIgMiAyIDIgLS45IDItMi0uOS0yLTItMn0vPjwvc3ZnPg=='"
-                            >
-                        </div>
-                    `;
+thumbnailHtml = `
+    <div class="thumbnail">
+      <img 
+        src="/file/${encodeURIComponent(file.name)}?thumb=true" 
+        class="thumbnail-img" 
+        alt="${file.name}"
+        onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzY2NiIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMC00LjQ4LTEwLTEwLTEwUzE3LjUyIDIgMTIgMnptMCAxOWMtNC40MSAwLTgtMy41OS04LThzMy41OS04IDgtOCA4IDMuNTkgOCA4LTMuNTkgOC04IDh6bTAtMTFjLTEuMSAwLTIgLjktMiAycy45IDIgMiAyIDIgLS45IDItMi0uOS0yLTItMn0vPjwvc3ZnPg=='"
+      >
+    </div>
+  `;
                 } else if (isVideo) {
                     // 视频文件：显示视频图标
                     thumbnailHtml = `
