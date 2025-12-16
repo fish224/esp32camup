@@ -1,13 +1,17 @@
 // sw.js
 let authToken = null; // 存储从页面接收的 Token
-
-// 监听页面发送的 Token 消息
+// 在 sw.js 中添加接收清除 token 的消息处理
 self.addEventListener('message', (event) => {
   if (event.data.type === 'SET_TOKEN') {
-    authToken = event.data.token; // 保存 Token
+    authToken = event.data.token;
     console.log('Service Worker 已接收 Token');
+  } else if (event.data.type === 'CLEAR_TOKEN') {
+    authToken = null; // 清除存储的 token
+    console.log('Service Worker 已清除 Token');
   }
 });
+// 监听页面发送的 Token 消息
+
 
 self.addEventListener('install', (event) => {
   self.skipWaiting(); // 立即激活新的 Service Worker
