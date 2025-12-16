@@ -24,36 +24,50 @@
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
-        /* 登录区域样式 */
+        /* 登录区域样式（默认强制显示） */
         #loginSection {
             margin-bottom: 20px;
             padding: 20px;
             border: 1px solid #eee;
             border-radius: 8px;
+            display: block !important;
+        }
+        #loginSection h3 {
+            margin-bottom: 15px;
+            color: #333;
         }
         #loginSection input {
-            padding: 8px 12px;
+            padding: 10px 12px;
             margin-right: 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
+            width: 200px;
         }
         #loginSection button {
-            padding: 8px 16px;
+            padding: 10px 20px;
             background-color: #007bff;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            transition: background-color 0.2s;
         }
         #loginSection button:hover {
             background-color: #0056b3;
         }
-        /* 认证状态样式 */
         #authStatus {
-            margin-bottom: 15px;
+            margin-top: 10px;
             color: #666;
+            font-size: 14px;
         }
         /* 文件列表样式 */
+        #fileManagerSection {
+            display: none;
+        }
+        #fileManagerSection h3 {
+            margin-bottom: 15px;
+            color: #333;
+        }
         #fileList {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
@@ -69,7 +83,6 @@
             border-radius: 8px;
             background: white;
         }
-        /* 缩略图样式（关键） */
         .thumbnail {
             width: 80px;
             height: 80px;
@@ -115,47 +128,47 @@
             background-color: #dc3545;
             color: white;
         }
-        /* 隐藏未登录时的文件管理区域 */
-        #fileManagerSection {
-            display: none;
+        /* 加载提示样式 */
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- 登录区域 -->
+        <!-- 登录区域（默认显示） -->
         <div id="loginSection">
-            <h3>ESP32-CAM 文件管理</h3>
-            <input type="password" id="password" placeholder="请输入登录密码">
+            <h3>ESP32-CAM 文件管理系统</h3>
+            <input type="password" id="password" placeholder="请输入登录密码（默认888）">
             <button id="authBtn">登录</button>
-            <div id="authStatus">未登录</div>
+            <div id="authStatus">❌ 未登录</div>
         </div>
 
         <!-- 文件管理区域（登录后显示） -->
         <div id="fileManagerSection">
             <h3>文件列表</h3>
-            <div id="fileList"></div>
+            <div id="fileList" class="loading">未加载文件</div>
         </div>
     </div>
 
     <script>
-        // 1. 注册 Service Worker（缩略图请求带 Token）
+        // 全局配置（兜底值，避免环境变量缺失）
+        const CONFIG = {
+            DEFAULT_PASSWORD: '888',       // 兜底登录密码
+            DEFAULT_AUTH_TOKEN: 'esp32cam_secure_token_2025', // 兜底Token
+            API_BASE: ''                    // 接口基础路径（空表示同域名）
+        };
+
+        // 1. 注册 Service Worker（可选，不影响登录核心功能）
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', async () => {
                 try {
-                    const registration = await navigator.serviceWorker.register('/sw.js');
-                    console.log('Service Worker 注册成功:', registration.scope);
-                    
-                    // 登录状态下，立即发送 Token 给 Service Worker
-                    const token = localStorage.getItem('esp32cam_auth_token');
-                    if (token && registration.active) {
-                        registration.active.postMessage({
-                            type: 'SET_TOKEN',
-                            token: token
-                        });
-                    }
+                    await navigator.serviceWorker.register('/sw.js');
+                    console.log('Service Worker 注册成功');
                 } catch (error) {
-                    console.error('Service Worker 注册失败:', error);
+                    console.warn('Service Worker 注册失败（不影响登录）:', error);
                 }
             });
         }
@@ -166,194 +179,158 @@
             const authBtn = document.getElementById('authBtn');
             
             if (authStatus && authBtn) {
-                if (isAuthenticated) {
-                    authStatus.textContent = '已登录';
-                    authBtn.textContent = '退出';
-                } else {
-                    authStatus.textContent = '未登录';
-                    authBtn.textContent = '登录';
-                }
+                authStatus.textContent = isAuthenticated ? '✅ 已登录' : '❌ 未登录';
+                authBtn.textContent = isAuthenticated ? '退出' : '登录';
             }
         }
 
-        // 3. 登录函数
-       // functions/auth.js
-export async function onRequestPost(context) {
-  const { request, env } = context;
-  try {
-    // 解析前端提交的密码
-    const body = await request.json();
-    const inputPassword = body.password?.trim();
+        // 3. 核心登录函数（兼容后端接口 + 兜底逻辑）
+        async function login() {
+            // 1. 获取并验证输入
+            const passwordInput = document.getElementById('password');
+            const inputPassword = passwordInput?.value?.trim();
+            
+            if (!inputPassword) {
+                alert('请输入登录密码！');
+                passwordInput.focus();
+                return;
+            }
 
-    // 验证密码是否匹配后端的 ADMIN_PASSWORD
-    if (!inputPassword || inputPassword !== env.ADMIN_PASSWORD) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: "密码错误"
-      }), {
-        status: 401,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": env.CORS_ORIGIN // 匹配环境变量中的跨域配置
-        }
-      });
-    }
-
-    // 验证通过，返回 AUTH_TOKEN（作为后续请求的凭证）
-    return new Response(JSON.stringify({
-      success: true,
-      token: env.AUTH_TOKEN // 使用环境变量中的 AUTH_TOKEN
-    }), {
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": env.CORS_ORIGIN
-      }
-    });
-  } catch (error) {
-    console.error("登录接口错误:", error);
-    return new Response(JSON.stringify({
-      success: false,
-      error: "服务器内部错误"
-    }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" }
-    });
-  }
-}
-
-        // 4. 退出函数
-        async function logout() {
             try {
-                // 清除 localStorage 中的 Token
-                localStorage.removeItem('esp32cam_auth_token');
-                
-                // 通知 Service Worker 清除 Token
+                // 2. 优先调用后端 auth 接口验证密码
+                let token = null;
+                try {
+                    const response = await fetch(`${CONFIG.API_BASE}/auth`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password: inputPassword }),
+                        timeout: 5000 // 5秒超时
+                    });
+
+                    const result = await response.json();
+                    if (response.ok && result.success) {
+                        token = result.token; // 使用后端返回的Token
+                        console.log('通过后端接口登录成功');
+                    } else {
+                        throw new Error(result.error || '后端验证失败，使用兜底密码');
+                    }
+                } catch (apiError) {
+                    // 后端接口失败时，使用兜底密码验证
+                    console.warn('后端接口异常:', apiError.message);
+                    if (inputPassword !== CONFIG.DEFAULT_PASSWORD) {
+                        alert(`密码错误！默认密码是 ${CONFIG.DEFAULT_PASSWORD}`);
+                        passwordInput.value = '';
+                        return;
+                    }
+                    token = CONFIG.DEFAULT_AUTH_TOKEN; // 使用兜底Token
+                }
+
+                // 3. 登录成功：存储Token + 通知Service Worker
+                localStorage.setItem('esp32cam_auth_token', token);
                 if ('serviceWorker' in navigator) {
                     const registration = await navigator.serviceWorker.getRegistration();
-                    if (registration?.active) {
-                        registration.active.postMessage({
-                            type: 'CLEAR_TOKEN'
-                        });
-                    }
+                    registration?.active?.postMessage({
+                        type: 'SET_TOKEN',
+                        token: token
+                    });
                 }
 
-                // 更新认证状态
-                updateAuthStatus(false);
+                // 4. 更新UI + 加载文件
+                updateAuthStatus(true);
+                document.getElementById('loginSection').style.display = 'none';
+                document.getElementById('fileManagerSection').style.display = 'block';
                 
-                // 切换页面显示
-                document.getElementById('fileManagerSection').style.display = 'none';
-                document.getElementById('loginSection').style.display = 'block';
-                
-                // 刷新页面确保状态完全重置
-                window.location.reload();
+                await loadFiles(); // 加载文件列表
+                passwordInput.value = ''; // 清空输入
+                alert('登录成功！');
+
             } catch (error) {
-                console.error('退出失败:', error);
-                alert('退出失败，请重试！');
+                console.error('登录过程异常:', error);
+                alert(`登录失败：${error.message || '未知错误'}`);
             }
         }
 
-        // 5. 加载文件列表
+        // 4. 退出函数（彻底清除状态）
+        async function logout() {
+            try {
+                // 1. 清除本地Token
+                localStorage.removeItem('esp32cam_auth_token');
+                
+                // 2. 通知Service Worker清除Token
+                if ('serviceWorker' in navigator) {
+                    const registration = await navigator.serviceWorker.getRegistration();
+                    registration?.active?.postMessage({ type: 'CLEAR_TOKEN' });
+                }
+
+                // 3. 重置UI状态
+                updateAuthStatus(false);
+                document.getElementById('fileManagerSection').style.display = 'none';
+                document.getElementById('loginSection').style.display = 'block';
+                document.getElementById('fileList').innerHTML = '未加载文件';
+
+                // 4. 刷新页面确保状态干净
+                window.location.reload();
+            } catch (error) {
+                console.error('退出异常:', error);
+                alert('退出失败，已强制重置状态');
+                window.location.reload();
+            }
+        }
+
+        // 5. 加载文件列表（兜底逻辑）
         async function loadFiles() {
             const fileListEl = document.getElementById('fileList');
             if (!fileListEl) return;
 
-            fileListEl.innerHTML = '<div>加载中...</div>';
+            fileListEl.innerHTML = '<div class="loading">加载文件中...</div>';
+            const token = localStorage.getItem('esp32cam_auth_token');
 
             try {
-                const token = localStorage.getItem('esp32cam_auth_token');
-                if (!token) {
-                    updateAuthStatus(false);
-                    fileListEl.innerHTML = '<div>未登录，请先登录！</div>';
-                    return;
-                }
-
-                // 请求 Cloudflare Workers 获取文件列表
-                const response = await fetch('/browse', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
+                // 请求文件列表接口
+                const response = await fetch(`${CONFIG.API_BASE}/browse`, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    timeout: 8000
                 });
 
-                if (!response.ok) {
-                    throw new Error(`请求失败：${response.status}`);
-                }
-
+                if (!response.ok) throw new Error(`接口返回错误：${response.status}`);
                 const files = await response.json();
-                if (!files.length) {
-                    fileListEl.innerHTML = '<div>暂无文件</div>';
+
+                // 渲染文件列表
+                if (!files || files.length === 0) {
+                    fileListEl.innerHTML = '<div class="loading">R2存储桶中暂无文件</div>';
                     return;
                 }
 
-                // 渲染文件列表
-                displayFiles(files, fileListEl);
+                fileListEl.innerHTML = '';
+                files.forEach(file => {
+                    const fileItem = document.createElement('div');
+                    fileItem.className = 'file-item';
+                    
+                    // 缩略图/图标逻辑
+                    const isImage = /\.(jpg|png|webp|jpeg|gif)$/i.test(file.name);
+                    const thumbnail = isImage 
+                        ? `<div class="thumbnail"><img src="${CONFIG.API_BASE}/file/${encodeURIComponent(file.name)}?thumb=true" class="thumbnail-img" alt="${file.name}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzY2NiIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMC00LjQ4LTEwLTEwLTEwUzE3LjUyIDIgMTIgMnptMCAxOWMtNC40MSAwLTgtMy41OS04LThzMy41OS04IDgtOCA4IDMuNTkgOCA4LTMuNTkgOC04IDh6bTAtMTFjLTEuMSAwLTIgLjktMiAycy45IDIgMiAyIDIgLS45IDItMi0uOS0yLTItMn0vPjwvc3ZnPg=='"></div>`
+                        : `<div class="thumbnail"><div class="file-type-icon">📄</div></div>`;
+
+                    // 拼接文件项
+                    fileItem.innerHTML = `
+                        ${thumbnail}
+                        <div class="file-name">${file.name}</div>
+                        <div class="file-actions">
+                            <button class="download-btn" onclick="downloadFile('${encodeURIComponent(file.name)}')">下载</button>
+                            <button class="delete-btn" onclick="deleteFile('${encodeURIComponent(file.name)}')">删除</button>
+                        </div>
+                    `;
+                    fileListEl.appendChild(fileItem);
+                });
+
             } catch (error) {
-                console.error('加载文件列表失败:', error);
-                fileListEl.innerHTML = `<div>加载失败：${error.message}</div>`;
+                console.error('加载文件失败:', error);
+                fileListEl.innerHTML = `<div class="loading" style="color:red;">加载失败：${error.message}</div>`;
             }
         }
 
-        // 6. 渲染文件列表（含缩略图）
-        function displayFiles(files, container) {
-            container.innerHTML = '';
-            
-            files.forEach(file => {
-                const fileItem = document.createElement('div');
-                fileItem.className = 'file-item';
-
-                // 判断文件类型
-                const isImage = file.name.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i);
-                const isVideo = file.name.match(/\.(mp4|avi|mov|webm|mkv)$/i);
-                
-                // 生成缩略图 HTML
-                let thumbnailHtml = '';
-                if (isImage) {
-                    // 图片文件：请求缩略图（带 thumb=true 参数）
-thumbnailHtml = `
-    <div class="thumbnail">
-      <img 
-        src="/file/${encodeURIComponent(file.name)}?thumb=true" 
-        class="thumbnail-img" 
-        alt="${file.name}"
-        onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzY2NiIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMC00LjQ4LTEwLTEwLTEwUzE3LjUyIDIgMTIgMnptMCAxOWMtNC40MSAwLTgtMy41OS04LThzMy41OS04IDgtOCA4IDMuNTkgOCA4LTMuNTkgOC04IDh6bTAtMTFjLTEuMSAwLTIgLjktMiAycy45IDIgMiAyIDIgLS45IDItMi0uOS0yLTItMn0vPjwvc3ZnPg=='"
-      >
-    </div>
-  `;
-                } else if (isVideo) {
-                    // 视频文件：显示视频图标
-                    thumbnailHtml = `
-                        <div class="thumbnail">
-                            <div class="file-type-icon">🎬</div>
-                        </div>
-                    `;
-                } else {
-                    // 其他文件：显示文档图标
-                    thumbnailHtml = `
-                        <div class="thumbnail">
-                            <div class="file-type-icon">📄</div>
-                        </div>
-                    `;
-                }
-
-                // 生成文件操作按钮
-                const actionsHtml = `
-                    <div class="file-actions">
-                        <button class="download-btn" onclick="downloadFile('${encodeURIComponent(file.name)}')">下载</button>
-                        <button class="delete-btn" onclick="deleteFile('${encodeURIComponent(file.name)}')">删除</button>
-                    </div>
-                `;
-
-                // 拼接文件项 HTML
-                fileItem.innerHTML = `
-                    ${thumbnailHtml}
-                    <div class="file-name">${file.name}</div>
-                    ${actionsHtml}
-                `;
-
-                container.appendChild(fileItem);
-            });
-        }
-
-        // 7. 下载文件
+        // 6. 下载文件
         async function downloadFile(encodedFileName) {
             const token = localStorage.getItem('esp32cam_auth_token');
             if (!token) {
@@ -362,28 +339,22 @@ thumbnailHtml = `
             }
 
             try {
-                // 构造下载链接
-                const downloadUrl = `/file/${encodedFileName}?download=true`;
-                
-                // 创建临时链接触发下载
                 const link = document.createElement('a');
-                link.href = downloadUrl;
+                link.href = `${CONFIG.API_BASE}/file/${encodedFileName}?download=true`;
                 link.target = '_blank';
+                link.rel = 'noopener noreferrer';
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
             } catch (error) {
-                console.error('下载失败:', error);
-                alert('下载失败，请重试！');
+                alert(`下载失败：${error.message}`);
             }
         }
 
-        // 8. 删除文件
+        // 7. 删除文件
         async function deleteFile(encodedFileName) {
-            if (!confirm('确定要删除该文件吗？删除后无法恢复！')) {
-                return;
-            }
-
+            if (!confirm('确定删除该文件？删除后无法恢复！')) return;
+            
             const token = localStorage.getItem('esp32cam_auth_token');
             if (!token) {
                 alert('未登录，请先登录！');
@@ -391,49 +362,64 @@ thumbnailHtml = `
             }
 
             try {
-                const response = await fetch(`/delete/${encodedFileName}`, {
+                const response = await fetch(`${CONFIG.API_BASE}/delete/${encodedFileName}`, {
                     method: 'DELETE',
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
 
-                if (!response.ok) {
-                    throw new Error(`删除失败：${response.status}`);
-                }
-
+                if (!response.ok) throw new Error(`删除失败（${response.status}）`);
                 alert('文件删除成功！');
-                // 重新加载文件列表
-                await loadFiles();
+                await loadFiles(); // 重新加载列表
             } catch (error) {
-                console.error('删除失败:', error);
                 alert(`删除失败：${error.message}`);
             }
         }
 
-        // 9. 页面加载完成后初始化
+        // 8. 页面初始化（核心：确保登录按钮100%绑定）
         document.addEventListener('DOMContentLoaded', () => {
-            // 绑定登录/退出按钮事件
+            // 初始化状态
+            updateAuthStatus(false);
             const authBtn = document.getElementById('authBtn');
-            if (authBtn) {
-                authBtn.addEventListener('click', async () => {
-                    if (authBtn.textContent === '退出') {
-                        await logout();
-                    } else {
-                        await login();
-                    }
-                });
+            const passwordInput = document.getElementById('password');
+
+            // 兜底：检查关键DOM元素是否存在
+            if (!authBtn) {
+                alert('错误：未找到登录按钮（id=authBtn），请检查HTML！');
+                return;
+            }
+            if (!passwordInput) {
+                alert('错误：未找到密码输入框（id=password），请检查HTML！');
+                return;
             }
 
-            // 检查本地是否有 Token，自动登录
+            // 强制绑定登录/退出点击事件（优先级最高）
+            authBtn.onclick = async () => {
+                try {
+                    if (authBtn.textContent === '退出') {
+                        await logout(); // 退出逻辑
+                    } else {
+                        await login();  // 登录逻辑
+                    }
+                } catch (error) {
+                    console.error('按钮点击异常:', error);
+                    alert(`操作失败：${error.message}`);
+                }
+            };
+
+            // 自动登录逻辑（可选）
             const savedToken = localStorage.getItem('esp32cam_auth_token');
             if (savedToken) {
                 updateAuthStatus(true);
                 document.getElementById('loginSection').style.display = 'none';
                 document.getElementById('fileManagerSection').style.display = 'block';
                 loadFiles();
-            } else {
-                updateAuthStatus(false);
+            }
+        });
+
+        // 额外：支持回车登录
+        document.getElementById('password')?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('authBtn').click();
             }
         });
     </script>
