@@ -1,17 +1,15 @@
-// functions/file.js
+// 引入Cloudflare图片处理模块
+import { ImageResizer } from '@cloudflare/images';
+
 export async function onRequestGet(context) {
   const { request, env } = context;
   const url = new URL(request.url);
   
   try {
-    // 从URL中提取文件名
+    // 提取文件名
     const filename = decodeURIComponent(url.pathname.split('/file/')[1]);
-    
     if (!filename) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: '文件名不能为空'
-      }), {
+      return new Response(JSON.stringify({ success: false, error: '文件名不能为空' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -20,10 +18,7 @@ export async function onRequestGet(context) {
     // 验证认证令牌
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: '未授权，请提供有效的认证令牌'
-      }), {
+      return new Response(JSON.stringify({ success: false, error: '未授权' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -31,58 +26,65 @@ export async function onRequestGet(context) {
     
     const token = authHeader.split(' ')[1];
     const validToken = env.AUTH_TOKEN || '888';
-    
     if (token !== validToken) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: '无效的认证令牌'
-      }), {
+      return new Response(JSON.stringify({ success: false, error: '无效令牌' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
     }
     
-    // 检查是否是缩略图请求
+    // 检查是否为缩略图请求
     const isThumbnail = url.searchParams.get('thumb') === 'true';
-    
-    // 从R2获取文件
     const object = await env.MY_R2_BUCKET.get(filename);
-    
     if (!object) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: '文件不存在'
-      }), {
+      return new Response(JSON.stringify({ success: false, error: '文件不存在' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' }
       });
     }
     
-    // 设置响应头
+    // 设置响应头（包含CORS配置）
     const headers = new Headers();
-    
-    // 根据文件类型设置Content-Type
     const contentType = object.httpMetadata?.contentType || getContentType(filename);
     headers.set('Content-Type', contentType);
+    headers.set('Access-Control-Allow-Origin', 'https://esp32camup.pages.dev'); // 固定CORS域名
+    headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
     
-    // 如果是下载请求，设置Content-Disposition
+    // 处理下载请求
     if (url.searchParams.get('download') === 'true') {
       headers.set('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
     }
     
-    // 设置缓存头
-    headers.set('Cache-Control', 'public, max-age=3600');
-    
-    // 如果是缩略图请求，可能需要调整
-    if (isThumbnail) {
-      // 这里可以添加缩略图处理逻辑
-      // 例如：调整图片大小等
+    // 缩略图处理逻辑（仅对图片生效）
+    if (isThumbnail && contentType.startsWith('image/')) {
+      try {
+        // 读取原始图片数据
+        const arrayBuffer = await object.arrayBuffer();
+        const resizer = new ImageResizer(arrayBuffer);
+        
+        // 生成400×300缩略图（保持比例裁剪）
+        const thumbnailBuffer = await resizer.resize({
+          width: 400,
+          height: 300,
+          fit: 'cover', // 按比例裁剪至目标尺寸
+          format: 'jpeg', // 统一输出为JPEG
+          quality: 80 // 压缩质量
+        });
+        
+        // 更新缩略图响应头
+        headers.set('Content-Type', 'image/jpeg');
+        headers.set('Cache-Control', 'public, max-age=86400'); // 缓存1天
+        return new Response(thumbnailBuffer, { headers, status: 200 });
+      } catch (error) {
+        console.error('缩略图生成失败:', error);
+        // 失败时返回原始图片
+        return new Response(object.body, { headers, status: 200 });
+      }
     }
     
-    return new Response(object.body, {
-      headers: headers,
-      status: 200
-    });
+    // 非缩略图请求直接返回原始文件
+    headers.set('Cache-Control', 'public, max-age=3600');
+    return new Response(object.body, { headers, status: 200 });
     
   } catch (error) {
     console.error('获取文件失败:', error);
@@ -92,12 +94,15 @@ export async function onRequestGet(context) {
       details: error.message
     }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': 'https://esp32camup.pages.dev'
+      }
     });
   }
 }
 
-// 辅助函数：根据文件名获取Content-Type
+// 保持原有的getContentType函数不变
 function getContentType(filename) {
   const ext = filename.split('.').pop().toLowerCase();
   const mimeTypes = {
@@ -119,6 +124,5 @@ function getContentType(filename) {
     'js': 'application/javascript',
     'json': 'application/json'
   };
-  
   return mimeTypes[ext] || 'application/octet-stream';
 }
