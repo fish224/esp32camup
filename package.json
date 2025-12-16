@@ -1,0 +1,9 @@
+{
+  "name": "esp32camup",
+  "version": "1.0.0",
+  "description": "ESP32-CAM 文件上传与管理系统",
+  "dependencies": {
+    "@cloudflare/images": "^0.1.0"
+  },
+  "type": "module"
+}
