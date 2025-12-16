@@ -1,0 +1,10 @@
+name = "esp32camup"
+main = "functions"
+compatibility_date = "2024-09-20"
+
+[build]
+command = "npm install"  # 强制构建时安装依赖
+
+[build.upload]
+format = "modules"
+external = ["@cloudflare/images"]  # 声明为外部依赖，避免解析错误
