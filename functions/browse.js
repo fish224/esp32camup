@@ -4,13 +4,6 @@ export async function onRequestGet(context) {
   const url = new URL(request.url);
   
   try {
-    // 获取查询参数
-    const page = parseInt(url.searchParams.get('page')) || 1;
-    const limit = parseInt(url.searchParams.get('limit')) || 20;
-    const fileType = url.searchParams.get('type') || 'all';
-    const sortBy = url.searchParams.get('sort') || 'newest';
-    const searchTerm = url.searchParams.get('search') || '';
-    
     // 验证认证令牌
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -21,7 +14,7 @@ export async function onRequestGet(context) {
     }
     
     const token = authHeader.split(' ')[1];
-    const validToken = env.AUTH_TOKEN || '888'; // 使用环境变量或默认值
+    const validToken = env.AUTH_TOKEN || '888';
     
     if (token !== validToken) {
       return new Response(JSON.stringify({ error: '无效的认证令牌' }), {
@@ -29,6 +22,13 @@ export async function onRequestGet(context) {
         headers: { 'Content-Type': 'application/json' }
       });
     }
+    
+    // 获取查询参数
+    const page = parseInt(url.searchParams.get('page')) || 1;
+    const limit = parseInt(url.searchParams.get('limit')) || 20;
+    const fileType = url.searchParams.get('type') || 'all';
+    const sortBy = url.searchParams.get('sort') || 'newest';
+    const searchTerm = url.searchParams.get('search') || '';
     
     // 从 R2 存储桶获取文件列表
     const listOptions = {
@@ -38,7 +38,7 @@ export async function onRequestGet(context) {
     
     const listed = await env.MY_R2_BUCKET.list(listOptions);
     
-    // 过滤和排序文件
+    // 处理文件列表
     let files = listed.objects.map(obj => ({
       name: obj.key,
       size: obj.size,
