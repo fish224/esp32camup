@@ -517,20 +517,11 @@ if ('serviceWorker' in navigator) {
                 
                 let thumbnailHtml = '';
                 if (isImage) {
-                    // 生成带认证的缩略图URL（通过Service Worker转发）
-    thumbnailHtml = `
-        <img src="/file/${encodeURIComponent(file.name)}?thumb=true" 
-             class="thumbnail" 
-             alt="${file.name}"
-             onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzAwMCIgZD0iTTIyIDEwVjE4YTIgMiAwIDAgMS0yIDJoLTZWMmEyIDIgMCAwIDAtMi0yHjJBMiAyIDAgMCAwIDIgNHYxNGg2djZoNWEyIDIgMCAwIDEgMiAydjloMkg0YTIgMiAwIDAgMS0yLTJWNmEyIDIgMCAwIDEgMi0yaDE0YTIgMiAwIDAgMSAyIDJ6bTAtMTBoLTZ2NGgtNHYtNGgtMnY0aC00di00SDJ2NGgydjloMTR2LTRoMnptNCAxMkg2djJoMTJ6Ii8+PC9zdmc+'">
+               thumbnailHtml = `
+        <div class="thumbnail">
+            <img src="/file/${encodeURIComponent(file.name)}?thumb=true" class="thumbnail-img" alt="${file.name}">
+        </div>
     `;
-                } else if (isVideo) {
-                    thumbnailHtml = `
-                        <div class="thumbnail">
-                            <div class="file-type-icon">🎬</div>
-                            <div>视频文件</div>
-                        </div>
-                    `;
                 } else {
                     thumbnailHtml = `
                         <div class="thumbnail">
