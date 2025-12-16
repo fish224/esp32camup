@@ -433,14 +433,54 @@
         }
         
         // 退出登录
-        function logout() {
-            if (confirm('确定要退出登录吗？')) {
-                localStorage.removeItem('esp32cam_auth_token');
-                authToken = null;
-                updateAuthStatus(false);
-                showAuthModal();
-            }
-        }
+       // 退出登录函数
+function logout() {
+  // 1. 清除 localStorage 中的认证 token
+  localStorage.removeItem('esp32cam_auth_token');
+  
+  // 2. 通知 Service Worker 清除存储的 token
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistration().then((registration) => {
+      if (registration && registration.active) {
+        registration.active.postMessage({
+          type: 'CLEAR_TOKEN' // 告诉 Service Worker 清除 token
+        });
+      }
+    });
+  }
+  
+  // 3. 清除页面中的认证状态（如隐藏文件列表，显示登录表单）
+  document.getElementById('fileList').innerHTML = ''; // 清空文件列表
+  document.getElementById('loginSection').style.display = 'block'; // 显示登录框
+  document.getElementById('fileManagerSection').style.display = 'none'; // 隐藏文件管理区
+  
+  // 4. 可选：刷新页面确保状态完全重置
+  window.location.reload();
+}
+
+// 给退出按钮绑定点击事件（确保 HTML 中有 id 为 logoutBtn 的按钮）
+document.getElementById('logoutBtn').addEventListener('click', logout);
+        
+// 在 index.html 的 <script> 标签中添加（建议放在登录逻辑后或页面加载完成时）
+if ('serviceWorker' in navigator) {
+  // 注册 Service Worker
+  navigator.serviceWorker.register('/sw.js').then((registration) => {
+    console.log('Service Worker 注册成功');
+
+    // 获取 localStorage 中的 Token
+    const token = localStorage.getItem('esp32cam_auth_token');
+    if (token) {
+      // 向 Service Worker 发送 Token
+      registration.active.postMessage({
+        type: 'SET_TOKEN',
+        token: token
+      });
+    }
+  }).catch((error) => {
+    console.log('Service Worker 注册失败:', error);
+  });
+}
+        
 // 注册Service Worker处理缩略图认证
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
