@@ -70,15 +70,15 @@ export async function onRequestGet(context) {
     
     // 处理缩略图请求（仅对图片文件生效）
     if (isThumbnail) {
-      // 仅处理图片类型文件
-      if (!contentType.startsWith('image/')) {
+    // 仅处理图片类型文件
+    if (!contentType.startsWith('image/')) {
         return new Response(JSON.stringify({
-          success: false,
-          error: '仅支持图片生成缩略图'
+            success: false,
+            error: '仅支持图片生成缩略图'
         }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-      }
+    }
 
-      try {
+    try {
         // 读取原始图像数据
         const imageBuffer = await object.arrayBuffer();
         const image = new Image();
@@ -90,15 +90,15 @@ export async function onRequestGet(context) {
         let height = image.height;
 
         if (width > height) {
-          if (width > maxDim) {
-            height = (height * maxDim) / width;
-            width = maxDim;
-          }
+            if (width > maxDim) {
+                height = (height * maxDim) / width;
+                width = maxDim;
+            }
         } else {
-          if (height > maxDim) {
-            width = (width * maxDim) / height;
-            height = maxDim;
-          }
+            if (height > maxDim) {
+                width = (width * maxDim) / height;
+                height = maxDim;
+            }
         }
 
         // 绘制缩略图到画布
@@ -106,23 +106,23 @@ export async function onRequestGet(context) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(image, 0, 0, width, height);
 
-        // 转换为WebP格式（体积更小，兼容性好）
+        // 转换为WebP格式（体积更小）
         const thumbBlob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.8 });
         const thumbArrayBuffer = await thumbBlob.arrayBuffer();
 
-        // 更新缩略图响应头
+        // 更新响应头
         headers.set('Content-Type', 'image/webp');
         headers.set('Cache-Control', 'public, max-age=86400'); // 缓存1天
         headers.set('X-Thumbnail-Generated', 'true');
 
         return new Response(thumbArrayBuffer, { headers, status: 200 });
-      } catch (e) {
+    } catch (e) {
         console.error('生成缩略图失败:', e);
         // 失败时返回原图
         headers.set('Cache-Control', 'public, max-age=3600');
         return new Response(object.body, { headers, status: 200 });
-      }
     }
+}
     
     // 非缩略图请求直接返回原文件
     headers.set('Cache-Control', 'public, max-age=3600');
