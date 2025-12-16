@@ -13,7 +13,7 @@ export async function onRequestDelete(context) {
   }
   
   const token = authHeader.split(' ')[1];
-  const validToken = await env.AUTH_TOKENS.get('admin');
+  const validToken = await env.AUTH_TOKEN || '888'; // 与file.js保持一致
   
   if (token !== validToken) {
     return new Response(JSON.stringify({ error: '无效的访问令牌' }), {
@@ -26,7 +26,7 @@ export async function onRequestDelete(context) {
   const fileKey = decodeURIComponent(filename);
   
   try {
-    await env.ESP32CAM_BUCKET.delete(fileKey);
+    await env.MY_R2_BUCKET.delete(fileKey);
     
     return new Response(JSON.stringify({
       success: true,
