@@ -5,7 +5,7 @@ export async function onRequestGet(context) {
   
   try {
     // 从URL中提取文件名
-    const filename = decodeURIComponent(url.pathname.split('/file/')[1](@ref);
+    const filename = decodeURIComponent(url.pathname.split('/file/')[1];
     
     if (!filename) {
       return new Response(JSON.stringify({
