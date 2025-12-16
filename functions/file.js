@@ -1,15 +1,17 @@
-// 引入Cloudflare图片处理模块
-import { ImageResizer } from '@cloudflare/images';
-
+// functions/file.js
 export async function onRequestGet(context) {
   const { request, env } = context;
   const url = new URL(request.url);
   
   try {
-    // 提取文件名
+    // 从URL中提取文件名
     const filename = decodeURIComponent(url.pathname.split('/file/')[1]);
+    
     if (!filename) {
-      return new Response(JSON.stringify({ success: false, error: '文件名不能为空' }), {
+      return new Response(JSON.stringify({
+        success: false,
+        error: '文件名不能为空'
+      }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -18,7 +20,10 @@ export async function onRequestGet(context) {
     // 验证认证令牌
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ success: false, error: '未授权' }), {
+      return new Response(JSON.stringify({
+        success: false,
+        error: '未授权，请提供有效的认证令牌'
+      }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -26,63 +31,100 @@ export async function onRequestGet(context) {
     
     const token = authHeader.split(' ')[1];
     const validToken = env.AUTH_TOKEN || '888';
+    
     if (token !== validToken) {
-      return new Response(JSON.stringify({ success: false, error: '无效令牌' }), {
+      return new Response(JSON.stringify({
+        success: false,
+        error: '无效的认证令牌'
+      }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
     }
     
-    // 检查是否为缩略图请求
+    // 检查是否是缩略图请求
     const isThumbnail = url.searchParams.get('thumb') === 'true';
+    
+    // 从R2获取文件
     const object = await env.MY_R2_BUCKET.get(filename);
+    
     if (!object) {
-      return new Response(JSON.stringify({ success: false, error: '文件不存在' }), {
+      return new Response(JSON.stringify({
+        success: false,
+        error: '文件不存在'
+      }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' }
       });
     }
     
-    // 设置响应头（包含CORS配置）
+    // 设置响应头
     const headers = new Headers();
     const contentType = object.httpMetadata?.contentType || getContentType(filename);
     headers.set('Content-Type', contentType);
-    headers.set('Access-Control-Allow-Origin', 'https://esp32camup.pages.dev'); // 固定CORS域名
-    headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
     
     // 处理下载请求
     if (url.searchParams.get('download') === 'true') {
       headers.set('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
     }
     
-    // 缩略图处理逻辑（仅对图片生效）
-    if (isThumbnail && contentType.startsWith('image/')) {
+    // 处理缩略图请求（仅对图片文件生效）
+    if (isThumbnail) {
+      // 仅处理图片类型文件
+      if (!contentType.startsWith('image/')) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: '仅支持图片生成缩略图'
+        }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      }
+
       try {
-        // 读取原始图片数据
-        const arrayBuffer = await object.arrayBuffer();
-        const resizer = new ImageResizer(arrayBuffer);
-        
-        // 生成400×300缩略图（保持比例裁剪）
-        const thumbnailBuffer = await resizer.resize({
-          width: 400,
-          height: 300,
-          fit: 'cover', // 按比例裁剪至目标尺寸
-          format: 'jpeg', // 统一输出为JPEG
-          quality: 80 // 压缩质量
-        });
-        
+        // 读取原始图像数据
+        const imageBuffer = await object.arrayBuffer();
+        const image = new Image();
+        await image.decode(imageBuffer); // 解码图像
+
+        // 计算缩略图尺寸（保持宽高比，最大边为200px）
+        const maxDim = 200;
+        let width = image.width;
+        let height = image.height;
+
+        if (width > height) {
+          if (width > maxDim) {
+            height = (height * maxDim) / width;
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width = (width * maxDim) / height;
+            height = maxDim;
+          }
+        }
+
+        // 绘制缩略图到画布
+        const canvas = new OffscreenCanvas(width, height);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0, width, height);
+
+        // 转换为WebP格式（体积更小，兼容性好）
+        const thumbBlob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.8 });
+        const thumbArrayBuffer = await thumbBlob.arrayBuffer();
+
         // 更新缩略图响应头
-        headers.set('Content-Type', 'image/jpeg');
+        headers.set('Content-Type', 'image/webp');
         headers.set('Cache-Control', 'public, max-age=86400'); // 缓存1天
-        return new Response(thumbnailBuffer, { headers, status: 200 });
-      } catch (error) {
-        console.error('缩略图生成失败:', error);
-        // 失败时返回原始图片
+        headers.set('X-Thumbnail-Generated', 'true');
+
+        return new Response(thumbArrayBuffer, { headers, status: 200 });
+      } catch (e) {
+        console.error('生成缩略图失败:', e);
+        // 失败时返回原图
+        headers.set('Cache-Control', 'public, max-age=3600');
         return new Response(object.body, { headers, status: 200 });
       }
     }
     
-    // 非缩略图请求直接返回原始文件
+    // 非缩略图请求直接返回原文件
     headers.set('Cache-Control', 'public, max-age=3600');
     return new Response(object.body, { headers, status: 200 });
     
@@ -94,15 +136,12 @@ export async function onRequestGet(context) {
       details: error.message
     }), {
       status: 500,
-      headers: { 
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': 'https://esp32camup.pages.dev'
-      }
+      headers: { 'Content-Type': 'application/json' }
     });
   }
 }
 
-// 保持原有的getContentType函数不变
+// 辅助函数：根据文件名获取Content-Type
 function getContentType(filename) {
   const ext = filename.split('.').pop().toLowerCase();
   const mimeTypes = {
@@ -124,5 +163,6 @@ function getContentType(filename) {
     'js': 'application/javascript',
     'json': 'application/json'
   };
+  
   return mimeTypes[ext] || 'application/octet-stream';
 }
