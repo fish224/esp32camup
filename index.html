@@ -516,13 +516,26 @@ if ('serviceWorker' in navigator) {
                 const uploadDate = file.uploaded ? new Date(file.uploaded).toLocaleString('zh-CN') : '未知日期';
                 
                 let thumbnailHtml = '';
-                if (isImage) {
-               thumbnailHtml = `
+                // 在文件类型判断中，先处理图片类型
+if (isImage) {
+    thumbnailHtml = `
         <div class="thumbnail">
-            <img src="/file/${encodeURIComponent(file.name)}?thumb=true" class="thumbnail-img" alt="${file.name}">
+            <img src="/file/${encodeURIComponent(file.name)}?thumb=true" 
+                 class="thumbnail-img" 
+                 alt="${file.name}"
+                 onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzY2NiIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMC00LjQ4LTEwLTEwLTEwUzE3LjUyIDIgMTIgMnptMCAxOWMtNC40MSAwLTgtMy41OS04LThzMy41OS04IDgtOCA4IDMuNTkgOCA4LTMuNTkgOC04IDh6bTAtMTFjLTEuMSAwLTIgLjktMiAycy45IDIgMiAyIDIgLS45IDItMi0uOS0yLTItMi0weiIvPjwvc3ZnPg=='">
         </div>
     `;
-                } else {
+} else if (isVideo) {
+    // 视频文件原逻辑不变
+    thumbnailHtml = `
+        <div class="thumbnail">
+            <div class="file-type-icon">🎬</div>
+            <div>视频文件</div>
+        </div>
+    `;
+} 
+                else {
                     thumbnailHtml = `
                         <div class="thumbnail">
                             <div class="file-type-icon">📄</div>
