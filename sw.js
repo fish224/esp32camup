@@ -1,6 +1,16 @@
-// sw.js 正确代码
+// sw.js
+let authToken = null; // 存储从页面接收的 Token
+
+// 监听页面发送的 Token 消息
+self.addEventListener('message', (event) => {
+  if (event.data.type === 'SET_TOKEN') {
+    authToken = event.data.token; // 保存 Token
+    console.log('Service Worker 已接收 Token');
+  }
+});
+
 self.addEventListener('install', (event) => {
-  self.skipWaiting(); // 安装后立即激活
+  self.skipWaiting(); // 立即激活新的 Service Worker
 });
 
 self.addEventListener('activate', (event) => {
@@ -16,33 +26,26 @@ self.addEventListener('fetch', (event) => {
 
 async function handleThumbnailRequest(request) {
   try {
-    // 从 localStorage 获取 token（确保前端登录后已存储）
-    const token = localStorage.getItem('esp32cam_auth_token');
-    if (!token) {
-      // 无 token 时直接请求（可能触发 401，但不会导致 ERR_FAILED）
-      return fetch(request);
+    // 使用存储的 Token（不再访问 localStorage）
+    if (!authToken) {
+      console.warn('Service Worker 中无 Token，可能未登录');
+      return fetch(request); // 无 Token 时直接请求（可能 401）
     }
 
     // 克隆请求并添加认证头
     const headers = new Headers(request.headers);
-    headers.set('Authorization', `Bearer ${token}`); // 关键：添加认证头
+    headers.set('Authorization', `Bearer ${authToken}`);
 
     const authenticatedRequest = new Request(request, { 
       headers,
       method: request.method,
       mode: request.mode,
-      credentials: request.credentials,
-      cache: request.cache,
-      redirect: request.redirect,
-      referrer: request.referrer,
-      integrity: request.integrity
+      credentials: request.credentials
     });
 
-    // 发送带认证头的请求
     return fetch(authenticatedRequest);
   } catch (error) {
-    // 捕获 Service Worker 内部错误，避免请求中断
     console.error('Service Worker 处理请求失败:', error);
-    return fetch(request); // 失败时回退到原始请求
+    return fetch(request);
   }
 }
