@@ -1,27 +1,100 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
-    <meta charset="UTF-8">
-    <title>Image Gallery</title>
-    <!-- 样式表和其他头部信息 -->
+  <meta charset="UTF-8" />
+  <title>ESP32 相机图库</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .login, .gallery { margin-top: 20px; }
+    .img-item { display: inline-block; margin: 10px; text-align: center; }
+    img { width: 160px; height: 120px; object-fit: cover; border: 1px solid #ccc; }
+    button { margin: 5px; padding: 5px 10px; }
+  </style>
 </head>
 <body>
-<div id="gallery"></div>
+
+<!-- 登录区域 -->
+<div id="loginSection" class="login">
+  <h2>管理员登录</h2>
+  <input type="password" id="password" placeholder="输入密码" />
+  <button onclick="login()">登录</button>
+  <div id="loginMessage"></div>
+</div>
+
+<!-- 图库区域 -->
+<div id="gallerySection" class="gallery" style="display:none;">
+  <h2>图片库</h2>
+  <button onclick="logout()">退出登录</button>
+  <div id="gallery"></div>
+</div>
 
 <script>
-  // 渲染图片项
-  function renderGallery(files) {
+  const R2_PUBLIC_URL = 'https://r2.yuxinyu.dpdns.org';
+
+  // 页面加载时检查 Token
+  window.onload = () => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      showGallery();
+      loadImages();
+    }
+  };
+
+  async function login() {
+    const password = document.getElementById('password').value;
+    const res = await fetch('/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password })
+    });
+
+    const data = await res.json();
+    const msgEl = document.getElementById('loginMessage');
+
+    if (data.success) {
+      localStorage.setItem('authToken', data.token);
+      msgEl.style.color = 'green';
+      msgEl.textContent = data.message;
+      setTimeout(() => {
+        showGallery();
+        loadImages();
+      }, 1000);
+    } else {
+      msgEl.style.color = 'red';
+      msgEl.textContent = data.error;
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem('authToken');
+    document.getElementById('gallerySection').style.display = 'none';
+    document.getElementById('loginSection').style.display = 'block';
+  }
+
+  function showGallery() {
+    document.getElementById('loginSection').style.display = 'none';
+    document.getElementById('gallerySection').style.display = 'block';
+  }
+
+  async function loadImages() {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch('/browse', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (!res.ok) {
+      alert('获取图片列表失败，请重新登录');
+      logout();
+      return;
+    }
+
+    const files = await res.json();
     const galleryEl = document.getElementById('gallery');
     galleryEl.innerHTML = files.map(file => `
       <div class="img-item">
-        <img 
-          src="https://r2.yuxinyu.dpdns.org/${encodeURIComponent(file.name)}" 
-          alt="${file.name}" 
-          loading="lazy"
-          onerror="this.src='https://via.placeholder.com/160x120?text=加载失败';"
-          style="width:160px; height:120px; object-fit:cover; border:1px solid #ddd;"
-        />
-        <div title="${file.uploaded}">${file.name}</div>
+        <img src="${R2_PUBLIC_URL}/${encodeURIComponent(file.name)}" 
+             onerror="this.src='https://via.placeholder.com/160x120?text=加载失败';" />
+        <div>${file.name}</div>
         <button onclick="deleteImage('${file.name}')">删除</button>
         <button onclick="downloadImage('${file.name}')">下载</button>
       </div>
@@ -29,52 +102,42 @@
   }
 
   async function deleteImage(filename) {
+    if (!confirm(`确定删除 ${filename}？`)) return;
+
     const token = localStorage.getItem('authToken');
-    if (!token) {
-      alert('请先登录');
-      return;
-    }
-    const response = await fetch(`/delete/${filename}`, {
+    const res = await fetch(`/delete/${encodeURIComponent(filename)}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token}` }
     });
-    if (response.ok) {
+
+    if (res.ok) {
       alert('删除成功');
-      // 刷新页面或更新UI以反映更改
+      loadImages(); // 刷新列表
     } else {
-      alert('删除失败');
+      const err = await res.json().catch(() => ({ error: '未知错误' }));
+      alert('删除失败：' + err.error);
     }
   }
 
   async function downloadImage(filename) {
     const token = localStorage.getItem('authToken');
-    if (!token) {
-      alert('请先登录');
-      return;
-    }
-    const url = `/download/${encodeURIComponent(filename)}`;
-    const res = await fetch(url, {
+    const res = await fetch(`/download/${encodeURIComponent(filename)}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
 
     if (res.ok) {
       const blob = await res.blob();
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = filename;
-      link.click();
-      URL.revokeObjectURL(link.href);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
     } else {
-      alert('下载失败');
+      alert('下载失败，请重新登录');
     }
   }
-  
-  // 示例：假设您有一个获取文件列表的方法
-  window.onload = () => {
-    // 此处应替换为实际获取文件列表的逻辑
-    const files = [{name: 'example.jpg', uploaded: new Date()}];
-    renderGallery(files);
-  };
 </script>
+
 </body>
 </html>
