@@ -8,25 +8,26 @@
       font-family: Arial, sans-serif;
       padding: 20px;
       background-color: #f9f9f9;
-      max-width: 1300px; /* 限制最大宽度：7 * (160 + 2*10) ≈ 1260px */
       margin: 0 auto;
     }
 
-    .login, .gallery {
-      margin-top: 20px;
+    /* 设置图库容器最小宽度，确保7列不换行 */
+    #gallery {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(160px, 1fr)); /* 每个网格单元至少160px宽 */
+      gap: 20px; /* 列与列、行与行之间的间距 */
+      max-width: 1340px; /* 考虑到间距后大约是1260px + 80px的总间隙 */
+      margin: 0 auto;
+      overflow-x: auto; /* 小屏幕时允许横向滚动 */
     }
 
     .img-item {
-      display: inline-block;
-      width: 180px; /* 160px 图 + 20px 间距 */
       text-align: center;
-      margin: 10px;
-      vertical-align: top;
     }
 
     img {
-      width: 160px;
-      height: 120px; /* 保持 4:3 比例 */
+      width: 100%; /* 占满网格单元 */
+      height: 120px; /* 固定高度 */
       object-fit: cover;
       border: 1px solid #ddd;
       border-radius: 4px;
@@ -44,7 +45,6 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      max-width: 160px;
     }
 
     button {
@@ -69,11 +69,6 @@
     .pagination button {
       margin: 0 5px;
       padding: 5px 10px;
-    }
-
-    .pagination span {
-      margin: 0 5px;
-      color: #666;
     }
   </style>
 </head>
@@ -146,7 +141,7 @@
     const token = localStorage.getItem('authToken');
     const url = new URL('/browse', location.origin);
     url.searchParams.set('page', page);
-    url.searchParams.set('limit', 28); // ← 关键：每页28张
+    url.searchParams.set('limit', 28); // 每页28张
 
     const res = await fetch(url.toString(), {
       headers: { 'Authorization': `Bearer ${token}` }
