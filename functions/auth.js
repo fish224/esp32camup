@@ -1,43 +1,41 @@
 // functions/auth.js
 export async function onRequestPost(context) {
   const { request, env } = context;
-  try {
-    // 解析前端提交的密码
-    const body = await request.json();
-    const inputPassword = body.password?.trim();
 
-    // 验证密码是否匹配后端的 ADMIN_PASSWORD
-    if (!inputPassword || inputPassword !== env.ADMIN_PASSWORD) {
+  try {
+    const body = await request.json();
+    const { username, password } = body;
+
+    // 验证用户名（固定为 admin）和密码
+    if (username !== 'admin' || password !== env.ADMIN_PASSWORD) {
       return new Response(JSON.stringify({
         success: false,
-        error: "密码错误"
+        error: '用户名或密码错误'
       }), {
         status: 401,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": env.CORS_ORIGIN // 匹配环境变量中的跨域配置
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
     }
 
-    // 验证通过，返回 AUTH_TOKEN（作为后续请求的凭证）
+    // 生成唯一 Token（16位随机字符串）
+    const token = 'tk_' + Math.random().toString(36).substring(2, 18);
+    
+    // 存入 KV，有效期 24 小时（86400 秒）
+    await env.AUTH_TOKENS.put(token, 'active', { expirationTtl: 86400 });
+
     return new Response(JSON.stringify({
       success: true,
-      token: env.AUTH_TOKEN // 使用环境变量中的 AUTH_TOKEN
+      token: token,
+      message: '登录成功，Token 24 小时内有效'
     }), {
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": env.CORS_ORIGIN
-      }
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
     });
-  } catch (error) {
-    console.error("登录接口错误:", error);
+
+  } catch (e) {
     return new Response(JSON.stringify({
       success: false,
-      error: "服务器内部错误"
-    }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" }
-    });
+      error: '请求格式错误'
+    }), { status: 400 });
   }
 }
