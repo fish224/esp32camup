@@ -8,6 +8,8 @@
       font-family: Arial, sans-serif;
       padding: 20px;
       background-color: #f9f9f9;
+      max-width: 1300px; /* 限制最大宽度：7 * (160 + 2*10) ≈ 1260px */
+      margin: 0 auto;
     }
 
     .login, .gallery {
@@ -16,15 +18,15 @@
 
     .img-item {
       display: inline-block;
-      width: 220px; /* 图片 + 边距 */
+      width: 180px; /* 160px 图 + 20px 间距 */
       text-align: center;
       margin: 10px;
       vertical-align: top;
     }
 
     img {
-      width: 200px;
-      height: 150px;
+      width: 160px;
+      height: 120px; /* 保持 4:3 比例 */
       object-fit: cover;
       border: 1px solid #ddd;
       border-radius: 4px;
@@ -37,12 +39,12 @@
 
     .filename {
       margin: 5px 0;
-      font-size: 12px;
+      font-size: 11px;
       color: #555;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      max-width: 200px;
+      max-width: 160px;
     }
 
     button {
@@ -73,11 +75,6 @@
       margin: 0 5px;
       color: #666;
     }
-
-    .loading {
-      text-align: center;
-      color: #666;
-    }
   </style>
 </head>
 <body>
@@ -101,12 +98,11 @@
 <script>
   const R2_PUBLIC_URL = 'https://r2.yuxinyu.dpdns.org';
 
-  // 页面加载时检查 Token
   window.onload = () => {
     const token = localStorage.getItem('authToken');
     if (token) {
       showGallery();
-      loadImages(1); // 默认加载第一页
+      loadImages(1); // 加载第一页（28张）
     }
   };
 
@@ -150,7 +146,7 @@
     const token = localStorage.getItem('authToken');
     const url = new URL('/browse', location.origin);
     url.searchParams.set('page', page);
-    url.searchParams.set('limit', 40);
+    url.searchParams.set('limit', 28); // ← 关键：每页28张
 
     const res = await fetch(url.toString(), {
       headers: { 'Authorization': `Bearer ${token}` }
@@ -174,7 +170,7 @@
     galleryEl.innerHTML = files.map(file => `
       <div class="img-item">
         <img src="${R2_PUBLIC_URL}/${encodeURIComponent(file.name)}" 
-             onerror="this.src='https://via.placeholder.com/200x150?text=加载失败';" />
+             onerror="this.src='https://via.placeholder.com/160x120?text=加载失败';" />
         <div class="filename">${file.name}</div>
         <button onclick="deleteImage('${file.name}')">删除</button>
         <button onclick="downloadImage('${file.name}')">下载</button>
@@ -194,11 +190,10 @@
     prevBtn.onclick = () => loadImages(pagination.currentPage - 1);
     paginationEl.appendChild(prevBtn);
 
-    // 显示页码
     for (let i = 1; i <= pagination.totalPages; i++) {
       const btn = document.createElement('button');
       btn.textContent = i;
-      btn.className = i === pagination.currentPage ? 'active' : '';
+      if (i === pagination.currentPage) btn.style.backgroundColor = '#e0e0e0';
       btn.onclick = () => loadImages(i);
       paginationEl.appendChild(btn);
     }
