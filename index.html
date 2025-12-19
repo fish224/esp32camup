@@ -1,144 +1,80 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>ESP32 相册</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-      background: #f5f5f5;
-    }
-    .login, .gallery, .pagination {
-      margin-bottom: 20px;
-    }
-    .img-item {
-      display: inline-block;
-      margin: 8px;
-      text-align: center;
-      background: white;
-      padding: 6px;
-      border-radius: 4px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    .img-item img {
-      width: 160px;
-      height: 120px;
-      object-fit: cover;
-      border: 1px solid #ddd;
-    }
-    button {
-      margin: 4px;
-      padding: 6px 12px;
-    }
-    input[type="password"] {
-      padding: 6px;
-      margin-right: 8px;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <title>Image Gallery</title>
+    <!-- 样式表和其他头部信息 -->
 </head>
 <body>
-
-<div id="app">
-  <div class="login" id="loginSection">
-    <h2>请输入密码</h2>
-    <input type="password" id="passwordInput" placeholder="密码" />
-    <button onclick="handleLogin()">登录</button>
-  </div>
-
-  <div class="gallery" id="gallery" style="display:none;"></div>
-  <div class="pagination" id="pagination" style="display:none;"></div>
-</div>
+<div id="gallery"></div>
 
 <script>
-let authToken = localStorage.getItem('authToken') || null;
-
-// 页面加载时尝试自动登录
-if (authToken) {
-  document.getElementById('loginSection').style.display = 'none';
-  document.getElementById('gallery').style.display = 'block';
-  document.getElementById('pagination').style.display = 'block';
-  loadPage(1);
-}
-
-async function handleLogin() {
-  const pwd = document.getElementById('passwordInput').value.trim();
-  if (!pwd) return alert('请输入密码');
-
-  try {
-    const res = await fetch('/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pwd })
-    });
-    const data = await res.json();
-
-    if (data.success) {
-      authToken = data.token;
-      localStorage.setItem('authToken', authToken);
-      document.getElementById('loginSection').style.display = 'none';
-      document.getElementById('gallery').style.display = 'block';
-      document.getElementById('pagination').style.display = 'block';
-      loadPage(1);
-    } else {
-      alert('密码错误');
-    }
-  } catch (err) {
-    alert('登录请求失败');
-  }
-}
-
-async function loadPage(page) {
-  if (!authToken) return;
-
-  try {
-    const res = await fetch(`/browse?page=${page}&limit=20`, {
-      headers: { 'Authorization': `Bearer ${authToken}` }
-    });
-    const result = await res.json();
-
-    if (!result.success) {
-      if (res.status === 401) {
-        // Token 失效，清除并跳回登录
-        localStorage.removeItem('authToken');
-        authToken = null;
-        location.reload();
-      } else {
-        alert(result.error || '加载失败');
-      }
-      return;
-    }
-
-    const { files, pagination } = result;
-
-    // 渲染图片
+  // 渲染图片项
+  function renderGallery(files) {
     const galleryEl = document.getElementById('gallery');
     galleryEl.innerHTML = files.map(file => `
       <div class="img-item">
-        <img src="/file/${encodeURIComponent(file.name)}" alt="${file.name}" loading="lazy" />
+        <img 
+          src="https://r2.yuxinyu.dpdns.org/${encodeURIComponent(file.name)}" 
+          alt="${file.name}" 
+          loading="lazy"
+          onerror="this.src='https://via.placeholder.com/160x120?text=加载失败';"
+          style="width:160px; height:120px; object-fit:cover; border:1px solid #ddd;"
+        />
         <div title="${file.uploaded}">${file.name}</div>
+        <button onclick="deleteImage('${file.name}')">删除</button>
+        <button onclick="downloadImage('${file.name}')">下载</button>
       </div>
     `).join('');
-
-    // 渲染分页按钮
-    const paginationEl = document.getElementById('pagination');
-    let btns = '';
-    const start = Math.max(1, pagination.page - 3);
-    const end = Math.min(pagination.totalPages, pagination.page + 3);
-    if (pagination.page > 1) btns += `<button onclick="loadPage(${pagination.page - 1})">上一页</button>`;
-    for (let i = start; i <= end; i++) {
-      btns += `<button onclick="loadPage(${i})" ${i === pagination.page ? 'disabled' : ''}>${i}</button>`;
-    }
-    if (pagination.page < pagination.totalPages) btns += `<button onclick="loadPage(${pagination.page + 1})">下一页</button>`;
-    paginationEl.innerHTML = btns || '无数据';
-
-  } catch (err) {
-    console.error(err);
-    alert('网络错误');
   }
-}
-</script>
 
+  async function deleteImage(filename) {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      alert('请先登录');
+      return;
+    }
+    const response = await fetch(`/delete/${filename}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (response.ok) {
+      alert('删除成功');
+      // 刷新页面或更新UI以反映更改
+    } else {
+      alert('删除失败');
+    }
+  }
+
+  async function downloadImage(filename) {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      alert('请先登录');
+      return;
+    }
+    const url = `/download/${encodeURIComponent(filename)}`;
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (res.ok) {
+      const blob = await res.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } else {
+      alert('下载失败');
+    }
+  }
+  
+  // 示例：假设您有一个获取文件列表的方法
+  window.onload = () => {
+    // 此处应替换为实际获取文件列表的逻辑
+    const files = [{name: 'example.jpg', uploaded: new Date()}];
+    renderGallery(files);
+  };
+</script>
 </body>
 </html>
