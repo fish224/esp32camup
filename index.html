@@ -1,650 +1,144 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32-CAM 文件浏览器</title>
-    <style>
-        :root {
-            --primary-color: #4CAF50;
-            --secondary-color: #2196F3;
-            --danger-color: #f44336;
-            --bg-color: #f5f5f5;
-            --card-bg: #ffffff;
-            --text-color: #333;
-            --border-color: #ddd;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-        }
-        
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: var(--card-bg);
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-            padding: 30px;
-        }
-        
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 2px solid var(--border-color);
-        }
-        
-        h1 {
-            color: var(--primary-color);
-            margin: 0;
-            font-size: 28px;
-        }
-        
-        .controls {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 25px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        
-        .filter-group {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-        
-        select, input, button {
-            padding: 10px 15px;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            font-size: 14px;
-        }
-        
-        select {
-            background: white;
-            cursor: pointer;
-            min-width: 120px;
-        }
-        
-        input[type="text"] {
-            flex: 1;
-            min-width: 200px;
-        }
-        
-        button {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        
-        button:hover {
-            background-color: #45a049;
-        }
-        
-        .file-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 25px;
-            margin-bottom: 30px;
-        }
-        
-        .file-card {
-            background: white;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-            transition: transform 0.3s, box-shadow 0.3s;
-            border: 1px solid var(--border-color);
-        }
-        
-        .file-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-        }
-        
-        .thumbnail {
-            width: 100%;
-            height: 200px;
-            object-fit: cover;
-            background: linear-gradient(45deg, #f0f0f0, #e0e0e0);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 48px;
-            color: #999;
-        }
-        
-        .file-info {
-            padding: 15px;
-        }
-        
-        .file-name {
-            font-weight: 600;
-            margin-bottom: 8px;
-            word-break: break-all;
-            font-size: 14px;
-        }
-        
-        .file-meta {
-            display: flex;
-            justify-content: space-between;
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 10px;
-        }
-        
-        .file-size {
-            font-weight: 500;
-        }
-        
-        .file-date {
-            color: #888;
-        }
-        
-        .file-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 10px;
-        }
-        
-        .btn {
-            padding: 6px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            text-decoration: none;
-            display: inline-block;
-            text-align: center;
-            flex: 1;
-            cursor: pointer;
-            border: none;
-        }
-        
-        .btn-view {
-            background-color: var(--secondary-color);
-            color: white;
-        }
-        
-        .btn-download {
-            background-color: var(--primary-color);
-            color: white;
-        }
-        
-        .btn-delete {
-            background-color: var(--danger-color);
-            color: white;
-        }
-        
-        .btn-delete:hover {
-            background-color: #d32f2f;
-        }
-        
-        .pagination {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 15px;
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid var(--border-color);
-        }
-        
-        .page-btn {
-            padding: 8px 16px;
-            background-color: #f0f0f0;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        
-        .page-btn:hover:not(:disabled) {
-            background-color: var(--primary-color);
-            color: white;
-        }
-        
-        .page-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        
-        .page-info {
-            font-size: 14px;
-            color: #666;
-        }
-        
-        .auth-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .auth-content {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            width: 90%;
-            max-width: 400px;
-        }
-        
-        .auth-input {
-            width: 100%;
-            padding: 12px;
-            margin: 10px 0;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            font-size: 16px;
-        }
-        
-        .error-message {
-            color: #f44336;
-            font-size: 14px;
-            margin-top: 10px;
-            display: none;
-        }
-        
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #666;
-        }
-        
-        .file-type-icon {
-            font-size: 36px;
-            margin-bottom: 10px;
-        }
-        
-        @media (max-width: 768px) {
-            .container {
-                padding: 15px;
-            }
-            
-            .file-grid {
-                grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-                gap: 15px;
-            }
-            
-            .controls {
-                flex-direction: column;
-                align-items: stretch;
-            }
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ESP32 相册</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .login, .gallery, .pagination {
+      margin-bottom: 20px;
+    }
+    .img-item {
+      display: inline-block;
+      margin: 8px;
+      text-align: center;
+      background: white;
+      padding: 6px;
+      border-radius: 4px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .img-item img {
+      width: 160px;
+      height: 120px;
+      object-fit: cover;
+      border: 1px solid #ddd;
+    }
+    button {
+      margin: 4px;
+      padding: 6px 12px;
+    }
+    input[type="password"] {
+      padding: 6px;
+      margin-right: 8px;
+    }
+  </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>📷 ESP32-CAM 文件浏览器</h1>
-            <div class="auth-status">
-                <span id="authStatus">未登录</span>
-                <button onclick="toggleAuth()" id="authBtn">登录</button>
-            </div>
-        </header>
-        
-        <div class="controls">
-            <div class="filter-group">
-                <select id="fileTypeFilter">
-                    <option value="all">所有文件</option>
-                    <option value="image">仅图片</option>
-                    <option value="video">仅视频</option>
-                </select>
-                
-                <select id="sortBy">
-                    <option value="newest">最新优先</option>
-                    <option value="oldest">最旧优先</option>
-                    <option value="name">按名称</option>
-                    <option value="size">按大小</option>
-                </select>
-                
-                <input type="text" id="searchInput" placeholder="搜索文件名...">
-                
-                <button onclick="loadFiles()">刷新</button>
-            </div>
-        </div>
-        
-        <div id="fileGrid" class="file-grid">
-            <div class="loading">加载中...</div>
-        </div>
-        
-        <div class="pagination">
-            <button class="page-btn" onclick="prevPage()" id="prevBtn" disabled>上一页</button>
-            <span class="page-info" id="pageInfo">第 1 页，共 1 页</span>
-            <button class="page-btn" onclick="nextPage()" id="nextBtn" disabled>下一页</button>
-        </div>
-    </div>
-    
-    <!-- 身份验证模态框 -->
-    <div class="auth-modal" id="authModal">
-        <div class="auth-content">
-            <h2>身份验证</h2>
-            <input type="password" id="passwordInput" class="auth-input" placeholder="请输入访问密码">
-            <button onclick="authenticate()" style="width: 100%;">登录</button>
-            <div class="error-message" id="authError">密码错误，请重试</div>
-        </div>
-    </div>
-    
-    <script>
-        let currentPage = 1;
-        let pageSize = 20;
-        let totalFiles = 0;
-        let totalPages = 1;
-        let authToken = localStorage.getItem('esp32cam_auth_token');
-        
-        // 页面加载时检查身份验证
-        document.addEventListener('DOMContentLoaded', function() {
-            if (authToken) {
-                updateAuthStatus(true);
-                loadFiles();
-            } else {
-                showAuthModal();
-            }
-        });
-        
-        // 显示身份验证模态框
-        function showAuthModal() {
-            document.getElementById('authModal').style.display = 'flex';
-            document.getElementById('passwordInput').focus();
-        }
-        
-        // 隐藏身份验证模态框
-        function hideAuthModal() {
-            document.getElementById('authModal').style.display = 'none';
-            document.getElementById('passwordInput').value = '';
-            document.getElementById('authError').style.display = 'none';
-        }
-        
-        // 更新认证状态显示
-        function updateAuthStatus(isAuthenticated) {
-            const authStatus = document.getElementById('authStatus');
-            const authBtn = document.getElementById('authBtn');
-            
-            if (isAuthenticated) {
-                authStatus.textContent = '已登录';
-                authBtn.textContent = '退出';
-            } else {
-                authStatus.textContent = '未登录';
-                authBtn.textContent = '登录';
-            }
-        }
-        
-        // 切换认证状态
-        function toggleAuth() {
-            if (authToken) {
-                logout();
-            } else {
-                showAuthModal();
-            }
-        }
-        
-        // 身份验证
-        async function authenticate() {
-            const password = document.getElementById('passwordInput').value;
-            const authError = document.getElementById('authError');
-            
-            if (!password) {
-                authError.textContent = '请输入密码';
-                authError.style.display = 'block';
-                return;
-            }
-            
-            try {
-                const response = await fetch('/auth', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ password: password })
-                });
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    authToken = data.token;
-                    localStorage.setItem('esp32cam_auth_token', authToken);
-                    updateAuthStatus(true);
-                    hideAuthModal();
-                    loadFiles();
-                } else {
-                    authError.textContent = '密码错误，请重试';
-                    authError.style.display = 'block';
-                }
-            } catch (error) {
-                console.error('认证失败:', error);
-                authError.textContent = '网络错误，请重试';
-                authError.style.display = 'block';
-            }
-        }
-        
-        // 退出登录
-        function logout() {
-            if (confirm('确定要退出登录吗？')) {
-                localStorage.removeItem('esp32cam_auth_token');
-                authToken = null;
-                updateAuthStatus(false);
-                showAuthModal();
-            }
-        }
-        
-        // 加载文件列表
-        async function loadFiles(page = 1) {
-            if (!authToken) {
-                showAuthModal();
-                return;
-            }
-            
-            const fileType = document.getElementById('fileTypeFilter').value;
-            const sortBy = document.getElementById('sortBy').value;
-            const searchTerm = document.getElementById('searchInput').value;
-            
-            const params = new URLSearchParams({
-                page: page,
-                limit: pageSize,
-                type: fileType,
-                sort: sortBy,
-                search: searchTerm
-            });
-            
-            try {
-                const response = await fetch(`/browse?${params}`, {
-                    headers: {
-                        'Authorization': `Bearer ${authToken}`
-                    }
-                });
-                
-                if (response.status === 401) {
-                    // 未授权，清除token并显示登录框
-                    localStorage.removeItem('esp32cam_auth_token');
-                    authToken = null;
-                    updateAuthStatus(false);
-                    showAuthModal();
-                    return;
-                }
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                
-                const data = await response.json();
-                displayFiles(data.files || data);
-                updatePagination(data.total || data.length, data.page || page, data.totalPages || Math.ceil((data.total || data.length) / pageSize));
-            } catch (error) {
-                console.error('加载文件失败:', error);
-                document.getElementById('fileGrid').innerHTML = 
-                    '<div class="loading">加载失败，请刷新重试</div>';
-            }
-        }
-        
-        // 显示文件列表
-        function displayFiles(files) {
-            const fileGrid = document.getElementById('fileGrid');
-            
-            if (!files || files.length === 0) {
-                fileGrid.innerHTML = '<div class="loading">没有找到文件</div>';
-                return;
-            }
-            
-            fileGrid.innerHTML = files.map(file => {
-                const isImage = file.name.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i);
-                const isVideo = file.name.match(/\.(mp4|avi|mov|webm|mkv)$/i);
-                const fileSizeMB = file.size ? (file.size / (1024 * 1024)).toFixed(2) : '0.00';
-                const uploadDate = file.uploaded ? new Date(file.uploaded).toLocaleString('zh-CN') : '未知日期';
-                
-                let thumbnailHtml = '';
-                if (isImage) {
-                    thumbnailHtml = `
-                        <img src="/thumbnail/${encodeURIComponent(file.name)}?size=300" 
-                             alt="${file.name}" 
-                             class="thumbnail"
-                             loading="lazy"
-                             onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"300\" height=\"200\"><rect width=\"100%\" height=\"100%\" fill=\"%23f0f0f0\"/><text x=\"50%\" y=\"50%\" font-family=\"Arial\" font-size=\"24\" fill=\"%23999\" text-anchor=\"middle\" dy=\".3em\">图片</text></svg>'">
-                    `;
-                } else if (isVideo) {
-                    thumbnailHtml = `
-                        <div class="thumbnail">
-                            <div class="file-type-icon">🎬</div>
-                            <div>视频文件</div>
-                        </div>
-                    `;
-                } else {
-                    thumbnailHtml = `
-                        <div class="thumbnail">
-                            <div class="file-type-icon">📄</div>
-                            <div>其他文件</div>
-                        </div>
-                    `;
-                }
-                
-                return `
-                    <div class="file-card">
-                        <div class="thumbnail-container">
-                            ${thumbnailHtml}
-                        </div>
-                        <div class="file-info">
-                            <div class="file-name" title="${file.name}">
-                                ${file.name}
-                            </div>
-                            <div class="file-meta">
-                                <span class="file-size">${fileSizeMB} MB</span>
-                                <span class="file-date">${uploadDate}</span>
-                            </div>
-                            <div class="file-actions">
-                                <a href="/file/${encodeURIComponent(file.name)}" 
-                                   class="btn btn-view" target="_blank">查看</a>
-                                <a href="/file/${encodeURIComponent(file.name)}" 
-                                   class="btn btn-download" download="${file.name}">下载</a>
-                                <button class="btn btn-delete" onclick="deleteFile('${file.name.replace(/'/g, "\\'")}')">
-                                    删除
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-        
-        // 删除文件函数
-        async function deleteFile(fileName) {
-            if (!authToken) {
-                showAuthModal();
-                return;
-            }
-            
-            if (!confirm(`确定要删除文件 "${fileName}" 吗？此操作不可撤销。`)) {
-                return;
-            }
-            
-            try {
-                const response = await fetch(`/delete/${encodeURIComponent(fileName)}`, {
-                    method: 'DELETE',
-                    headers: {
-                        'Authorization': `Bearer ${authToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                if (response.ok) {
-                    const result = await response.json();
-                    alert(result.message || '文件删除成功');
-                    
-                    // 重新加载文件列表
-                    loadFiles(currentPage);
-                } else if (response.status === 401) {
-                    localStorage.removeItem('esp32cam_auth_token');
-                    authToken = null;
-                    updateAuthStatus(false);
-                    showAuthModal();
-                } else {
-                    const error = await response.json();
-                    alert(`删除失败: ${error.error || '未知错误'}`);
-                }
-            } catch (error) {
-                console.error('删除文件时出错:', error);
-                alert('删除文件时发生网络错误');
-            }
-        }
-        
-        // 更新分页信息
-        function updatePagination(total, currentPageNum, totalPagesNum) {
-            currentPage = currentPageNum;
-            totalPages = totalPagesNum;
-            totalFiles = total;
-            
-            document.getElementById('pageInfo').textContent = 
-                `第 ${currentPage} 页，共 ${totalPages} 页（${totalFiles} 个文件）`;
-            
-            document.getElementById('prevBtn').disabled = currentPage <= 1;
-            document.getElementById('nextBtn').disabled = currentPage >= totalPages;
-        }
-        
-        // 上一页
-        function prevPage() {
-            if (currentPage > 1) {
-                currentPage--;
-                loadFiles(currentPage);
-            }
-        }
-        
-        // 下一页
-        function nextPage() {
-            if (currentPage < totalPages) {
-                currentPage++;
-                loadFiles(currentPage);
-            }
-        }
-        
-        // 搜索输入框事件
-        document.getElementById('searchInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                currentPage = 1;
-                loadFiles(currentPage);
-            }
-        });
-        
-        // 筛选器变化事件
-        document.getElementById('fileTypeFilter').addEventListener('change', function() {
-            currentPage = 1;
-            loadFiles(currentPage);
-        });
-        
-        document.getElementById('sortBy').addEventListener('change', function() {
-            currentPage = 1;
-            loadFiles(currentPage);
-        });
-    </script>
+
+<div id="app">
+  <div class="login" id="loginSection">
+    <h2>请输入密码</h2>
+    <input type="password" id="passwordInput" placeholder="密码" />
+    <button onclick="handleLogin()">登录</button>
+  </div>
+
+  <div class="gallery" id="gallery" style="display:none;"></div>
+  <div class="pagination" id="pagination" style="display:none;"></div>
+</div>
+
+<script>
+let authToken = localStorage.getItem('authToken') || null;
+
+// 页面加载时尝试自动登录
+if (authToken) {
+  document.getElementById('loginSection').style.display = 'none';
+  document.getElementById('gallery').style.display = 'block';
+  document.getElementById('pagination').style.display = 'block';
+  loadPage(1);
+}
+
+async function handleLogin() {
+  const pwd = document.getElementById('passwordInput').value.trim();
+  if (!pwd) return alert('请输入密码');
+
+  try {
+    const res = await fetch('/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      authToken = data.token;
+      localStorage.setItem('authToken', authToken);
+      document.getElementById('loginSection').style.display = 'none';
+      document.getElementById('gallery').style.display = 'block';
+      document.getElementById('pagination').style.display = 'block';
+      loadPage(1);
+    } else {
+      alert('密码错误');
+    }
+  } catch (err) {
+    alert('登录请求失败');
+  }
+}
+
+async function loadPage(page) {
+  if (!authToken) return;
+
+  try {
+    const res = await fetch(`/browse?page=${page}&limit=20`, {
+      headers: { 'Authorization': `Bearer ${authToken}` }
+    });
+    const result = await res.json();
+
+    if (!result.success) {
+      if (res.status === 401) {
+        // Token 失效，清除并跳回登录
+        localStorage.removeItem('authToken');
+        authToken = null;
+        location.reload();
+      } else {
+        alert(result.error || '加载失败');
+      }
+      return;
+    }
+
+    const { files, pagination } = result;
+
+    // 渲染图片
+    const galleryEl = document.getElementById('gallery');
+    galleryEl.innerHTML = files.map(file => `
+      <div class="img-item">
+        <img src="/file/${encodeURIComponent(file.name)}" alt="${file.name}" loading="lazy" />
+        <div title="${file.uploaded}">${file.name}</div>
+      </div>
+    `).join('');
+
+    // 渲染分页按钮
+    const paginationEl = document.getElementById('pagination');
+    let btns = '';
+    const start = Math.max(1, pagination.page - 3);
+    const end = Math.min(pagination.totalPages, pagination.page + 3);
+    if (pagination.page > 1) btns += `<button onclick="loadPage(${pagination.page - 1})">上一页</button>`;
+    for (let i = start; i <= end; i++) {
+      btns += `<button onclick="loadPage(${i})" ${i === pagination.page ? 'disabled' : ''}>${i}</button>`;
+    }
+    if (pagination.page < pagination.totalPages) btns += `<button onclick="loadPage(${pagination.page + 1})">下一页</button>`;
+    paginationEl.innerHTML = btns || '无数据';
+
+  } catch (err) {
+    console.error(err);
+    alert('网络错误');
+  }
+}
+</script>
+
 </body>
 </html>
