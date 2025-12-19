@@ -3,9 +3,9 @@
   "include": [
     "/auth",
     "/browse",
-    "/file/*",
     "/upload",
     "/delete/*"
+    "/download/*"
   ],
   "exclude": [
     "/assets/*",
