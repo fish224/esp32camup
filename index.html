@@ -4,11 +4,80 @@
   <meta charset="UTF-8" />
   <title>ESP32 相机图库</title>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    .login, .gallery { margin-top: 20px; }
-    .img-item { display: inline-block; margin: 10px; text-align: center; }
-    img { width: 160px; height: 120px; object-fit: cover; border: 1px solid #ccc; }
-    button { margin: 5px; padding: 5px 10px; }
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f9f9f9;
+    }
+
+    .login, .gallery {
+      margin-top: 20px;
+    }
+
+    .img-item {
+      display: inline-block;
+      width: 220px; /* 图片 + 边距 */
+      text-align: center;
+      margin: 10px;
+      vertical-align: top;
+    }
+
+    img {
+      width: 200px;
+      height: 150px;
+      object-fit: cover;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      transition: transform 0.2s ease;
+    }
+
+    img:hover {
+      transform: scale(1.05);
+    }
+
+    .filename {
+      margin: 5px 0;
+      font-size: 12px;
+      color: #555;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 200px;
+    }
+
+    button {
+      margin: 2px;
+      padding: 4px 8px;
+      font-size: 12px;
+      border: 1px solid #ccc;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #f0f0f0;
+    }
+
+    .pagination {
+      margin: 20px 0;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    .pagination button {
+      margin: 0 5px;
+      padding: 5px 10px;
+    }
+
+    .pagination span {
+      margin: 0 5px;
+      color: #666;
+    }
+
+    .loading {
+      text-align: center;
+      color: #666;
+    }
   </style>
 </head>
 <body>
@@ -26,6 +95,7 @@
   <h2>图片库</h2>
   <button onclick="logout()">退出登录</button>
   <div id="gallery"></div>
+  <div id="pagination"></div>
 </div>
 
 <script>
@@ -36,7 +106,7 @@
     const token = localStorage.getItem('authToken');
     if (token) {
       showGallery();
-      loadImages();
+      loadImages(1); // 默认加载第一页
     }
   };
 
@@ -57,7 +127,7 @@
       msgEl.textContent = data.message;
       setTimeout(() => {
         showGallery();
-        loadImages();
+        loadImages(1);
       }, 1000);
     } else {
       msgEl.style.color = 'red';
@@ -76,9 +146,13 @@
     document.getElementById('gallerySection').style.display = 'block';
   }
 
-  async function loadImages() {
+  async function loadImages(page = 1) {
     const token = localStorage.getItem('authToken');
-    const res = await fetch('/browse', {
+    const url = new URL('/browse', location.origin);
+    url.searchParams.set('page', page);
+    url.searchParams.set('limit', 40);
+
+    const res = await fetch(url.toString(), {
       headers: { 'Authorization': `Bearer ${token}` }
     });
 
@@ -88,17 +162,52 @@
       return;
     }
 
-    const files = await res.json();
+    const data = await res.json();
+    const { files, pagination } = data;
+
+    renderGallery(files);
+    renderPagination(pagination);
+  }
+
+  function renderGallery(files) {
     const galleryEl = document.getElementById('gallery');
     galleryEl.innerHTML = files.map(file => `
       <div class="img-item">
         <img src="${R2_PUBLIC_URL}/${encodeURIComponent(file.name)}" 
-             onerror="this.src='https://via.placeholder.com/160x120?text=加载失败';" />
-        <div>${file.name}</div>
+             onerror="this.src='https://via.placeholder.com/200x150?text=加载失败';" />
+        <div class="filename">${file.name}</div>
         <button onclick="deleteImage('${file.name}')">删除</button>
         <button onclick="downloadImage('${file.name}')">下载</button>
       </div>
     `).join('');
+  }
+
+  function renderPagination(pagination) {
+    const paginationEl = document.getElementById('pagination');
+    paginationEl.innerHTML = '';
+
+    if (pagination.totalPages <= 1) return;
+
+    const prevBtn = document.createElement('button');
+    prevBtn.textContent = '上一页';
+    prevBtn.disabled = !pagination.hasPrev;
+    prevBtn.onclick = () => loadImages(pagination.currentPage - 1);
+    paginationEl.appendChild(prevBtn);
+
+    // 显示页码
+    for (let i = 1; i <= pagination.totalPages; i++) {
+      const btn = document.createElement('button');
+      btn.textContent = i;
+      btn.className = i === pagination.currentPage ? 'active' : '';
+      btn.onclick = () => loadImages(i);
+      paginationEl.appendChild(btn);
+    }
+
+    const nextBtn = document.createElement('button');
+    nextBtn.textContent = '下一页';
+    nextBtn.disabled = !pagination.hasNext;
+    nextBtn.onclick = () => loadImages(pagination.currentPage + 1);
+    paginationEl.appendChild(nextBtn);
   }
 
   async function deleteImage(filename) {
@@ -112,7 +221,7 @@
 
     if (res.ok) {
       alert('删除成功');
-      loadImages(); // 刷新列表
+      loadImages(); // 刷新当前页
     } else {
       const err = await res.json().catch(() => ({ error: '未知错误' }));
       alert('删除失败：' + err.error);
