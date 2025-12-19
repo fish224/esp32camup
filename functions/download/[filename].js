@@ -1,18 +1,20 @@
+// functions/download/[filename].js
 export async function onRequestGet(context) {
   const { request, env, params } = context;
   const { filename } = params;
 
-  // 必须认证（防止未授权下载）
+  // 验证 Token
   const authHeader = request.headers.get('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return new Response('Unauthorized', { status: 401 });
   }
   const token = authHeader.split(' ')[1];
-  const validToken = env.AUTH_TOKEN || 'your_secret_token_here';
-  if (token !== validToken) {
-    return new Response('Invalid token', { status: 401 });
+  const isValid = await env.AUTH_TOKENS.get(token);
+  if (!isValid) {
+    return new Response('Invalid or expired token', { status: 401 });
   }
 
+  // 安全校验
   let fileKey;
   try {
     fileKey = decodeURIComponent(filename);
