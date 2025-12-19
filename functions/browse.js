@@ -16,7 +16,7 @@ export async function onRequestGet(context) {
   // 解析分页参数
   const url = new URL(request.url);
   const page = parseInt(url.searchParams.get('page') || '1');
-  const limit = parseInt(url.searchParams.get('limit') || '40');
+  const limit = parseInt(url.searchParams.get('limit') || '28');
   const offset = (page - 1) * limit;
 
   // 列出 R2 中所有对象（带分页）
