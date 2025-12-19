@@ -1,3 +1,4 @@
+// functions/delete/[filename].js
 export async function onRequestDelete(context) {
   const { request, env, params } = context;
   const { filename } = params;
@@ -5,22 +6,15 @@ export async function onRequestDelete(context) {
   // 验证 Token
   const authHeader = request.headers.get('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: '未授权' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    return new Response(JSON.stringify({ error: '未授权' }), { status: 401 });
   }
-
   const token = authHeader.split(' ')[1];
-  const validToken = env.AUTH_TOKEN || 'your_secret_token_here';
-
-  if (token !== validToken) {
-    return new Response(JSON.stringify({ error: '无效的访问令牌' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' }
-    });
+  const isValid = await env.AUTH_TOKENS.get(token);
+  if (!isValid) {
+    return new Response(JSON.stringify({ error: '无效或过期的 Token' }), { status: 401 });
   }
 
+  // 安全校验文件名
   let fileKey;
   try {
     fileKey = decodeURIComponent(filename);
