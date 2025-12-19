@@ -2,7 +2,7 @@
 export async function onRequestGet(context) {
   const { request, env } = context;
 
-  // 验证 Token（可选：如果只想登录后看图）
+  // 验证 Token
   const authHeader = request.headers.get('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return new Response(JSON.stringify({ error: '未授权' }), { status: 401 });
@@ -13,13 +13,19 @@ export async function onRequestGet(context) {
     return new Response(JSON.stringify({ error: '无效或过期的 Token' }), { status: 401 });
   }
 
-  // 列出 R2 中所有对象
+  // 解析分页参数
+  const url = new URL(request.url);
+  const page = parseInt(url.searchParams.get('page') || '1');
+  const limit = parseInt(url.searchParams.get('limit') || '40');
+  const offset = (page - 1) * limit;
+
+  // 列出 R2 中所有对象（带分页）
   const bucket = env.MY_R2_BUCKET;
   const objects = [];
   let cursor;
 
   do {
-    const listing = await bucket.list({ cursor, limit: 1000 });
+    const listing = await bucket.list({ cursor, limit: 1000 }); // 批量获取
     for (const obj of listing.objects) {
       objects.push({
         name: obj.key,
@@ -30,7 +36,21 @@ export async function onRequestGet(context) {
     cursor = listing.truncated ? listing.cursor : null;
   } while (cursor);
 
-  return new Response(JSON.stringify(objects), {
+  // 分页处理
+  const total = objects.length;
+  const totalPages = Math.ceil(total / limit);
+  const pagedFiles = objects.slice(offset, offset + limit);
+
+  return new Response(JSON.stringify({
+    files: pagedFiles,
+    pagination: {
+      currentPage: page,
+      totalPages,
+      totalItems: total,
+      hasNext: page < totalPages,
+      hasPrev: page > 1
+    }
+  }), {
     headers: { 'Content-Type': 'application/json' }
   });
 }
