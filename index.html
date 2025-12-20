@@ -70,6 +70,18 @@
       margin: 0 5px;
       padding: 5px 10px;
     }
+
+    #loading {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(0,0,0,0.8);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 4px;
+      display: none;
+      z-index: 1000;
+    }
   </style>
 </head>
 <body>
@@ -89,6 +101,9 @@
   <div id="gallery"></div>
   <div id="pagination"></div>
 </div>
+
+<!-- 全局加载提示 -->
+<div id="loading">AI 分析中，请稍候...</div>
 
 <script>
   const R2_PUBLIC_URL = 'https://r2.yuxinyu.dpdns.org';
@@ -169,6 +184,7 @@
         <div class="filename">${file.name}</div>
         <button onclick="deleteImage('${file.name}')">删除</button>
         <button onclick="downloadImage('${file.name}')">下载</button>
+        <button onclick="checkDuplicate('${file.name}')">查重</button>
       </div>
     `).join('');
   }
@@ -234,6 +250,49 @@
       URL.revokeObjectURL(url);
     } else {
       alert('下载失败，请重新登录');
+    }
+  }
+
+  // ========== 新增：查重功能 ==========
+  async function checkDuplicate(filename) {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      alert('请先登录');
+      return;
+    }
+
+    const loadingEl = document.getElementById('loading');
+    loadingEl.style.display = 'block';
+
+    try {
+      const res = await fetch(`/analyze/${encodeURIComponent(filename)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      loadingEl.style.display = 'none';
+
+      if (!res.ok) {
+        const errMsg = await res.text().catch(() => '未知错误');
+        alert('分析失败：' + errMsg);
+        return;
+      }
+
+      const result = await res.json();
+
+      if (result.result === 'exact_duplicate') {
+        const list = result.similarImages.map(i => i.filename).join('\n');
+        alert(`⚠️ 发现 ${result.similarImages.length} 张完全重复图片：\n${list}`);
+      } else if (result.result === 'semantic_similar') {
+        const list = result.similarImages
+          .map(i => `${i.filename} (相似度: ${i.similarity})`)
+          .join('\n');
+        alert(`🔍 发现 ${result.similarImages.length} 张语义相似图片：\n${list}\n\n描述: ${result.description}`);
+      } else {
+        alert(`✅ 图片唯一！\n描述: ${result.description}`);
+      }
+    } catch (e) {
+      loadingEl.style.display = 'none';
+      alert('请求失败：' + e.message);
     }
   }
 </script>
