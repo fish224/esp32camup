@@ -159,7 +159,12 @@
   <div id="gallery"></div>
   <div id="pagination"></div>
 </div>
-
+<!-- 在<h2>ESP32 相机图库</h2>下方添加批量操作按钮 -->
+<div style="margin: 15px 0;">
+  <button onclick="batchAnalyze()">批量查重当前页</button>
+  <button onclick="batchDeleteDuplicates()" style="background-color: #ffeeee; color: #d32f2f;">批量删除高重复图片</button>
+</div>
+  
 <!-- 全局加载提示 -->
 <div id="loading">AI 分析中，请稍候...</div>
 
@@ -170,13 +175,21 @@
   // 会话级缓存
   const analysisCache = new Map();
 
-  window.onload = () => {
-    const token = localStorage.getItem('authToken');
-    if (token) {
+ // 修改window.onload事件
+window.onload = async () => {
+  const token = localStorage.getItem('authToken');
+  if (token) {
+    // 验证Token有效性
+    const isValid = await checkTokenValidity();
+    if (isValid) {
       showGallery();
       loadImages(1);
+    } else {
+      // Token无效时显示登录界面
+      document.getElementById('loginSection').style.display = 'block';
     }
-  };
+  }
+};
 
   async function login() {
     const password = document.getElementById('password').value;
@@ -461,6 +474,75 @@
       alert('下载失败：' + err.message);
     });
   }
+  
+async function checkTokenValidity() {
+  const token = localStorage.getItem('authToken');
+  if (!token) return false;
+  
+  try {
+    // 调用一个轻量的验证接口（如果没有可以用/browse替代）
+    const res = await fetch('/browse?page=1&limit=1', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    if (res.status === 401) {
+      localStorage.removeItem('authToken');
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error('Token验证失败:', e);
+    return false;
+  }
+}
+
+// 批量分析当前页所有图片
+async function batchAnalyze() {
+  const token = localStorage.getItem('authToken');
+  if (!token) {
+    alert('请先登录');
+    return;
+  }
+
+  const imgItems = document.querySelectorAll('.img-item');
+  if (imgItems.length === 0) {
+    alert('当前页面没有图片');
+    return;
+  }
+
+  document.getElementById('loading').style.display = 'block';
+  
+  // 逐个分析（避免并发过高）
+  for (let i = 0; i < imgItems.length; i++) {
+    const item = imgItems[i];
+    const filename = item.querySelector('.filename').textContent;
+    const btn = document.getElementById(`btn-analyze-${filename}`);
+    
+    if (!analysisCache.has(filename) && btn && !btn.disabled) {
+      try {
+        const res = await fetch(`/analyze/${encodeURIComponent(filename)}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (res.ok) {
+          const result = await res.json();
+          analysisCache.set(filename, result);
+          displayAnalysisResult(filename, result);
+        }
+      } catch (e) {
+        console.error(`批量分析${filename}失败:`, e);
+      }
+      
+      // 显示进度
+      document.getElementById('loading').textContent = `正在分析 ${i+1}/${imgItems.length}`;
+    }
+  }
+
+  document.getElementById('loading').style.display = 'none';
+  alert('批量分析完成');
+}
+
+  
 </script>
 
 </body>
