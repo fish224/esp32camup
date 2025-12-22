@@ -4,8 +4,8 @@
     "/auth",
     "/browse",
     "/upload",
-    "/delete/*"
-    "/download/*"
+    "/delete/*",
+    "/download/*",
     "/analyze/*"
   ],
   "exclude": [
