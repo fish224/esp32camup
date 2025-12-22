@@ -1,130 +1,139 @@
 // functions/analyze/[filename].js
-// 环境变量 & 常量
-const R2_PUBLIC_URL = env.R2_PUBLIC_URL; // 与前端一致
-const DASHSCOPE_API_KEY = env.DASHSCOPE_API_KEY; // Cloudflare 配置的环境变量
+export async function onRequest({ params, env, request }) {
+  const { filename } = params;
 
-// 文本相似度计算（补充缺失的核心函数）
-function textSimilarity(text1, text2) {
-  // 简单且轻量的余弦相似度实现（无需依赖库）
-  const getWords = (text) => text.toLowerCase().split(/\W+/).filter(w => w);
-  const getVector = (text, vocab) => vocab.map(word => text.includes(word) ? 1 : 0);
-  
-  const words1 = getWords(text1);
-  const words2 = getWords(text2);
-  const vocab = [...new Set([...words1, ...words2])];
-  
-  const vec1 = getVector(text1, vocab);
-  const vec2 = getVector(text2, vocab);
-  
-  const dot = vec1.reduce((sum, val, i) => sum + val * vec2[i], 0);
-  const mag1 = Math.sqrt(vec1.reduce((sum, val) => sum + val * val, 0));
-  const mag2 = Math.sqrt(vec2.reduce((sum, val) => sum + val * val, 0));
-  
-  return mag1 && mag2 ? dot / (mag1 * mag2) : 0;
-}
-
-export async function onRequestGet(context) {
-  const { params, env, request } = context;
-  const filename = params.filename;
-  const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-
-  // 1. 验证登录 Token（复用原有鉴权逻辑）
-  if (!token || token !== localStorage.getItem('authToken')) { // 保持原有鉴权逻辑
-    return new Response(JSON.stringify({ error: '未授权' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' }
-    });
+  // 验证 Token
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return new Response(JSON.stringify({ error: '未授权' }), { status: 401 });
+  }
+  const token = authHeader.split(' ')[1];
+  const isValid = await env.AUTH_TOKENS.get(token);
+  if (!isValid) {
+    return new Response(JSON.stringify({ error: '无效或过期的 Token' }), { status: 401 });
   }
 
-  // 2. 调用阿里通义千问 VL 模型（修复 500 错误核心）
-  async function getImageDescription(imageUrl) {
-    if (!DASHSCOPE_API_KEY) {
-      throw new Error('未配置 DASHSCOPE_API_KEY 环境变量');
-    }
-
-    // 对齐本地 PowerShell 的请求体格式（OpenAI 兼容模式）
-    const requestBody = {
-      model: "qwen3-vl-flash",
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image_url",
-              image_url: { url: imageUrl } // 关键：嵌套格式与本地一致
-            },
-            {
-              type: "text",
-              text: "请用一句话描述这张图片的主要内容。"
-            }
-          ]
-        }
-      ]
+  // 文本相似度计算函数（新增）
+  function textSimilarity(str1, str2) {
+    // 简单分词（适用于中英文混合场景）
+    const tokenize = (str) => {
+      // 匹配中文、字母、数字和常见标点
+      const pattern = /[\u4e00-\u9fa5a-zA-Z0-9]+/g;
+      const matches = str.match(pattern);
+      return matches ? matches : [];
     };
 
-    try {
-      // 修复：使用兼容模式端点 + Bearer 鉴权
-      const response = await fetch("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${DASHSCOPE_API_KEY}` // 关键：兼容模式必须用 Bearer
-        },
-        body: JSON.stringify(requestBody),
-        redirect: "follow"
-      });
+    const tokens1 = tokenize(str1.toLowerCase());
+    const tokens2 = tokenize(str2.toLowerCase());
 
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`VL 模型调用失败 [${response.status}]: ${errText}`);
-      }
+    if (tokens1.length === 0 || tokens2.length === 0) return 0;
 
-      const result = await response.json();
-      const description = result.choices?.[0]?.message?.content?.trim();
-      
-      if (!description) {
-        throw new Error('未获取到图片描述');
-      }
-      return description;
-    } catch (e) {
-      console.error('VL 模型调用错误:', e);
-      throw new Error(`图片分析失败：${e.message}`);
-    }
+    // 计算交集
+    const intersection = tokens1.filter(token => tokens2.includes(token));
+    
+    // 计算并集
+    const union = [...new Set([...tokens1, ...tokens2])];
+
+    // 杰卡德系数作为相似度
+    return intersection.length / union.length;
   }
 
-  // 3. 原有查重逻辑（完全保留）
   try {
-    // 获取当前图片的完整 URL
-    const currentImageUrl = `${R2_PUBLIC_URL}/${encodeURIComponent(filename)}`;
-    // 调用 VL 模型获取描述
-    const currentDesc = await getImageDescription(currentImageUrl);
+    // 构建完整图片 URL
+    const imageUrl = `https://r2.yuxinyu.dpdns.org/${filename}`;
 
-    // 读取 R2 中所有图片（原有逻辑）
-    const list = await env.ESP32_CAM_BUCKET.list();
-    const files = list.objects.map(obj => obj.key).filter(key => key !== filename);
+    // 检查缓存
+    let currentDesc = await env.IMAGE_CACHE?.get(`desc:${filename}`);
+    if (!currentDesc) {
+      // 调用 DashScope AI
+      if (!env.DASHSCOPE_API_KEY) {
+        throw new Error('Missing DASHSCOPE_API_KEY secret');
+      }
 
-    // 语义相似度对比（原有逻辑）
-    const similarImages = [];
-    for (const file of files) {
-      const fileUrl = `${R2_PUBLIC_URL}/${encodeURIComponent(file)}`;
-      const otherDesc = await getImageDescription(fileUrl);
+      const aiResponse = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.DASHSCOPE_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'qwen3-vl-flash',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'image_url',
+                  image_url: { url: imageUrl }
+                },
+                {
+                  type: 'text',
+                  text: '请用一句话精确描述这张图片的主要内容，包括物体、人物、场景。不要解释，只输出描述。'
+                }
+              ]
+            }
+          ],
+          max_tokens: 80
+        })
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error('DashScope API Error:', aiResponse.status, errorText);
+        throw new Error(`AI 服务返回错误: ${aiResponse.status}`);
+      }
+
+      const data = await aiResponse.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content || typeof content !== 'string') {
+        console.error('Invalid AI response:', data);
+        throw new Error('AI 返回格式异常');
+      }
+
+      currentDesc = content.trim();
+      if (currentDesc.length < 5) {
+        throw new Error('AI 返回描述过短');
+      }
+
+      // 缓存结果（有效期1天）
+      await env.IMAGE_CACHE?.put(`desc:${filename}`, currentDesc, { expirationTtl: 86400 });
+    }
+
+    // 语义查重（与其他缓存项比对）
+    const listResult = await env.IMAGE_CACHE?.list({ prefix: 'desc:' }) ?? { keys: [] };
+    const semanticSimilar = [];
+
+    for (const key of listResult.keys) {
+      const otherFilename = key.name.replace(/^desc:/, '');
+      if (otherFilename === filename) continue;
+
+      const otherDesc = await env.IMAGE_CACHE?.get(key.name);
+      if (!otherDesc) continue;
+
       const similarity = textSimilarity(currentDesc, otherDesc);
-      
-      if (similarity > 0.7) { // 相似度阈值
-        similarImages.push({ filename: file, similarity: similarity.toFixed(2) });
+
+      if (similarity > 0.65) {
+        semanticSimilar.push({
+          filename: otherFilename,
+          similarity: similarity.toFixed(2)
+        });
       }
     }
 
-    // 返回结果（原有显示逻辑不变）
+    // 按相似度排序
+    semanticSimilar.sort((a, b) => b.similarity - a.similarity);
+
     return new Response(JSON.stringify({
+      currentFile: filename,
       description: currentDesc,
-      result: similarImages.length > 0 ? 'semantic_similar' : 'unique',
-      similarImages: similarImages
+      result: semanticSimilar.length > 0 ? 'semantic_similar' : 'unique',
+      similarImages: semanticSimilar
     }), {
       headers: { 'Content-Type': 'application/json' }
     });
 
   } catch (e) {
+    console.error('Function execution error:', e.message, e.stack);
     return new Response(JSON.stringify({ error: e.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
