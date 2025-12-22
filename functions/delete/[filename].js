@@ -1,6 +1,5 @@
 // functions/delete/[filename].js
-export async function onRequestDelete(context) {
-  const { request, env, params } = context;
+export async function onRequest({ params, env, request }) {
   const { filename } = params;
 
   // 验证 Token
@@ -14,26 +13,30 @@ export async function onRequestDelete(context) {
     return new Response(JSON.stringify({ error: '无效或过期的 Token' }), { status: 401 });
   }
 
-  // 安全校验文件名
-  let fileKey;
   try {
-    fileKey = decodeURIComponent(filename);
-  } catch {
-    return new Response(JSON.stringify({ error: '文件名编码错误' }), { status: 400 });
-  }
-
-  if (fileKey.includes('..') || fileKey.includes('/') || fileKey.includes('\\')) {
-    return new Response(JSON.stringify({ error: '非法文件名' }), { status: 400 });
-  }
-
-  try {
-    await env.MY_R2_BUCKET.delete(fileKey);
-    return new Response(JSON.stringify({ success: true }), { status: 200 });
-  } catch (error) {
-    console.error('Delete error:', error);
-    if (error.message?.includes('404')) {
-      return new Response(JSON.stringify({ error: '文件不存在' }), { status: 404 });
+    // 验证 R2 桶
+    if (!env.MY_R2_BUCKET) {
+      throw new Error("R2桶未绑定");
     }
-    return new Response(JSON.stringify({ error: '删除失败' }), { status: 500 });
+
+    // 删除 R2 中的文件
+    await env.MY_R2_BUCKET.delete(filename);
+
+    // 删除缓存
+    await env.IMAGE_CACHE?.delete(`desc:${filename}`);
+
+    return new Response(JSON.stringify({
+      code: 200,
+      msg: "删除成功",
+      filename
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('删除失败:', error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
