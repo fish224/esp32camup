@@ -14,29 +14,27 @@ export async function onRequest({ params, env, request }) {
   }
 
   // 文本相似度计算函数（新增）
-  function textSimilarity(str1, str2) {
-    // 简单分词（适用于中英文混合场景）
-    const tokenize = (str) => {
-      // 匹配中文、字母、数字和常见标点
-      const pattern = /[\u4e00-\u9fa5a-zA-Z0-9]+/g;
-      const matches = str.match(pattern);
-      return matches ? matches : [];
-    };
-
-    const tokens1 = tokenize(str1.toLowerCase());
-    const tokens2 = tokenize(str2.toLowerCase());
-
-    if (tokens1.length === 0 || tokens2.length === 0) return 0;
-
-    // 计算交集
-    const intersection = tokens1.filter(token => tokens2.includes(token));
-    
-    // 计算并集
-    const union = [...new Set([...tokens1, ...tokens2])];
-
-    // 杰卡德系数作为相似度
-    return intersection.length / union.length;
-  }
+  function textSimilarity(text1, text2) {
+  // 简单分词（可根据需求替换为更复杂的分词逻辑）
+  const getTerms = (text) => text.toLowerCase().match(/\b\w+\b/g) || [];
+  
+  const terms1 = getTerms(text1);
+  const terms2 = getTerms(text2);
+  
+  // 构建词袋
+  const allTerms = [...new Set([...terms1, ...terms2])];
+  
+  // 生成向量
+  const vector1 = allTerms.map(term => terms1.includes(term) ? 1 : 0);
+  const vector2 = allTerms.map(term => terms2.includes(term) ? 1 : 0);
+  
+  // 计算余弦相似度
+  const dotProduct = vector1.reduce((sum, v1, i) => sum + v1 * vector2[i], 0);
+  const magnitude1 = Math.sqrt(vector1.reduce((sum, v) => sum + v * v, 0));
+  const magnitude2 = Math.sqrt(vector2.reduce((sum, v) => sum + v * v, 0));
+  
+  return magnitude1 && magnitude2 ? dotProduct / (magnitude1 * magnitude2) : 0;
+}
 
   try {
     // 构建完整图片 URL
