@@ -1,37 +1,26 @@
-/**
- * 图片语义查重服务（使用 DashScope qwen3-vl-flash）
- * 
- * 要求环境变量：
- * - R2_PUBLIC_URL (Plain Text): 图片公网前缀，如 https://r2.yuxinyu.dpdns.org
- * - DASHSCOPE_API_KEY (Secret): DashScope API 密钥
- * 
- * 要求绑定：
- * - KV Namespace: IMAGE_CACHE (用于缓存 AI 描述)
- */
-
+// functions/analyze/[filename].js
 export async function onRequest({ params, env, request }) {
   const { filename } = params;
 
-  // === 1. 验证授权 ===
+  // 验证 Token
   const authHeader = request.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' }
-    });
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return new Response(JSON.stringify({ error: '未授权' }), { status: 401 });
+  }
+  const token = authHeader.split(' ')[1];
+  const isValid = await env.AUTH_TOKENS.get(token);
+  if (!isValid) {
+    return new Response(JSON.stringify({ error: '无效或过期的 Token' }), { status: 401 });
   }
 
   try {
-    // === 2. 构建图片 URL（从环境变量）===
-    if (!env.R2_PUBLIC_URL) {
-      throw new Error('Missing R2_PUBLIC_URL environment variable');
-    }
-    const imageUrl = `${env.R2_PUBLIC_URL}/${encodeURIComponent(filename)}`;
+    // ✅ 构建完整图片 URL（使用与前端一致的 R2 公开 URL）
+    const imageUrl = `https://r2.yuxinyu.dpdns.org/${filename}`;
 
-    // === 3. 检查缓存描述 ===
+    // 检查缓存
     let currentDesc = await env.IMAGE_CACHE?.get(`desc:${filename}`);
     if (!currentDesc) {
-      // === 4. 调用 DashScope AI（OpenAI 兼容模式）===
+      // 调用 DashScope AI
       if (!env.DASHSCOPE_API_KEY) {
         throw new Error('Missing DASHSCOPE_API_KEY secret');
       }
@@ -50,7 +39,7 @@ export async function onRequest({ params, env, request }) {
               content: [
                 {
                   type: 'image_url',
-                  image_url: { url: imageUrl }
+                  image_url: { url: imageUrl }  // ✅ 使用完整 URL
                 },
                 {
                   type: 'text',
@@ -63,7 +52,6 @@ export async function onRequest({ params, env, request }) {
         })
       });
 
-      // === 5. 处理 AI 响应 ===
       if (!aiResponse.ok) {
         const errorText = await aiResponse.text();
         console.error('DashScope API Error:', aiResponse.status, errorText);
@@ -82,11 +70,11 @@ export async function onRequest({ params, env, request }) {
         throw new Error('AI 返回描述过短');
       }
 
-      // === 6. 缓存结果（持久化到 KV）===
+      // 缓存结果
       await env.IMAGE_CACHE?.put(`desc:${filename}`, currentDesc);
     }
 
-    // === 7. 语义查重（与其他缓存项比对）===
+    // 语义查重（与其他缓存项比对）
     const listResult = await env.IMAGE_CACHE?.list({ prefix: 'desc:' }) ?? { keys: [] };
     const semanticSimilar = [];
 
@@ -106,7 +94,6 @@ export async function onRequest({ params, env, request }) {
       }
     }
 
-    // === 8. 返回成功响应 ===
     return new Response(JSON.stringify({
       currentFile: filename,
       description: currentDesc,
@@ -125,7 +112,7 @@ export async function onRequest({ params, env, request }) {
   }
 }
 
-// ========== 辅助函数：文本相似度（Jaccard 系数）==========
+// 辅助函数：文本相似度
 function textSimilarity(a, b) {
   const wordsA = new Set((a.toLowerCase().match(/\w+/g) || []));
   const wordsB = new Set((b.toLowerCase().match(/\w+/g) || []));
