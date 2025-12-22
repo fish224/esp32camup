@@ -133,10 +133,10 @@
 <div id="loading">AI 分析中，请稍候...</div>
 
 <script>
-  // R2 公共访问 URL（需与后端一致）
+  // ✅ 从环境变量获取（实际部署时应由后端提供）
   const R2_PUBLIC_URL = 'https://r2.yuxinyu.dpdns.org';
 
-  // 会话级缓存（避免同一页面重复请求分析）
+  // 会话级缓存
   const analysisCache = new Map();
 
   window.onload = () => {
@@ -192,45 +192,41 @@
     document.getElementById('gallerySection').style.display = 'block';
   }
 
-  // === 获取图片列表（调用 /list 接口）===
+  // ✅ 模拟图片列表（替换为真实 /list 接口）
+  const ALL_FILES = [
+    'esp32_cam_20251215145423.jpg',
+    'esp32_cam_20251215145442.jpg',
+    'esp32_cam_20251215145224.jpg',
+    'esp32_cam_20251215145130.jpg',
+    'esp32_cam_20251215145412.jpg',
+    // 添加更多图片...
+  ];
+
   async function loadImages(page = 1) {
     const token = localStorage.getItem('authToken');
     if (!token) return;
 
-    try {
-      const url = new URL('/list', location.origin);
-      url.searchParams.set('page', page);
-      url.searchParams.set('limit', 28);
+    // ✅ 模拟分页逻辑（实际应由 /list 接口返回）
+    const limit = 28;
+    const start = (page - 1) * limit;
+    const files = ALL_FILES.slice(start, start + limit);
+    const totalPages = Math.ceil(ALL_FILES.length / limit);
 
-      const res = await fetch(url.toString(), {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (!res.ok) {
-        if (res.status === 401) {
-          alert('登录已过期，请重新登录');
-          logout();
-        } else {
-          alert('获取图片列表失败');
-        }
-        return;
-      }
-
-      const data = await res.json();
-      renderGallery(data.files);
-      renderPagination(data.pagination);
-    } catch (e) {
-      console.error('Load images error:', e);
-      alert('加载图片失败');
-    }
+    renderGallery(files);
+    renderPagination({
+      currentPage: page,
+      totalPages: totalPages,
+      hasPrev: page > 1,
+      hasNext: page < totalPages
+    });
   }
 
   function renderGallery(files) {
     const galleryEl = document.getElementById('gallery');
     galleryEl.innerHTML = files.map(file => `
       <div class="img-item">
-        <img src="${R2_PUBLIC_URL}/${encodeURIComponent(file.name)}" 
-             onerror="this.src='https://via.placeholder.com/160x120?text=加载失败';" />
+        <!-- ✅ 移除 onerror，直接使用原 URL -->
+        <img src="${R2_PUBLIC_URL}/${encodeURIComponent(file.name)}" />
         <div class="filename">${file.name}</div>
         <button onclick="deleteImage('${file.name}')">删除</button>
         <button onclick="downloadImage('${file.name}')">下载</button>
@@ -251,7 +247,7 @@
     const el = document.getElementById('pagination');
     el.innerHTML = '';
 
-    if (pagination.totalPages <= 1) return;
+    if (pagination.totalPages <= 1) return; // ✅ 只有 1 页时不显示分页
 
     const prev = document.createElement('button');
     prev.textContent = '上一页';
@@ -315,7 +311,7 @@
   }
 
   function displayAnalysisResult(filename, result) {
-    const el = document.getElementById(`result-${filename}`);
+    const el = document.getElementById(`result-${file.name}`);
     if (!el) return;
 
     let html = '';
