@@ -1,4 +1,5 @@
 // functions/analyze/[filename].js
+// 使用 DashScope OpenAI 兼容模式（与本地 PowerShell 测试一致）
 
 export async function onRequestGet({ params, env, request }) {
   const { filename } = params;
@@ -6,7 +7,10 @@ export async function onRequestGet({ params, env, request }) {
   // 验证授权
   const authHeader = request.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
-    return new Response('Unauthorized', { status: 401 });
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 
   try {
@@ -15,50 +19,67 @@ export async function onRequestGet({ params, env, request }) {
     // Step 1: 检查缓存描述
     let currentDesc = await env.IMAGE_CACHE.get(`desc:${filename}`);
     if (!currentDesc) {
-      // 直接调用 Qwen-VL with URL
-      const vlRes = await fetch('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation', {
+      // ✅ 调用 DashScope OpenAI 兼容模式（与本地一致）
+      const vlRes = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${env.DASHSCOPE_API_KEY}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: "qwen3-vl-flash", // 确保使用正确的模型名称
-          input: {
-            messages: [{
+          model: "qwen3-vl-flash", // ✅ 兼容模式支持此模型名
+          messages: [
+            {
               role: "user",
               content: [
-                { image: imageUrl }, // 使用图片URL
-                { text: "请用一句话精确描述这张图片的主要内容，包括物体、人物、场景。不要解释，只输出描述。" }
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: imageUrl // 必须是公网可访问 URL
+                  }
+                },
+                {
+                  type: "text",
+                  text: "请用一句话精确描述这张图片的主要内容，包括物体、人物、场景。不要解释，只输出描述。"
+                }
               ]
-            }]
-          },
-          parameters: { max_tokens: 80 }
+            }
+          ],
+          max_tokens: 80
         })
       });
 
+      // 处理 HTTP 错误
       if (!vlRes.ok) {
         const errText = await vlRes.text();
-        console.error('VL API Error:', errText);
-        throw new Error(`AI 分析失败: ${vlRes.status} ${errText}`);
+        console.error('DashScope API HTTP Error:', vlRes.status, errText);
+        throw new Error(`AI 服务返回错误: ${vlRes.status}`);
       }
 
       const data = await vlRes.json();
-      currentDesc = data.output.choices[0].message.content.trim(); // 根据实际返回结构调整
 
-      if (!currentDesc) {
-        throw new Error('AI 返回描述为空');
+      // ✅ 安全解析 OpenAI 格式响应
+      if (!data?.choices?.[0]?.message?.content) {
+        console.error('Unexpected AI response structure:', data);
+        throw new Error('AI 返回数据格式异常，请检查模型或 API Key');
       }
 
+      currentDesc = data.choices[0].message.content.trim();
+
+      if (!currentDesc || currentDesc.length < 3) {
+        throw new Error('AI 返回描述过短或为空');
+      }
+
+      // 缓存描述
       await env.IMAGE_CACHE.put(`desc:${filename}`, currentDesc);
     }
 
-    // Step 2: 与其他图片比对（语义查重）
-    const allKeys = await env.IMAGE_CACHE.list({ prefix: 'desc:' });
+    // Step 2: 语义查重（与其他已缓存描述比对）
+    const listResult = await env.IMAGE_CACHE.list({ prefix: 'desc:' });
     const semanticSimilar = [];
 
-    for (const key of allKeys.keys) {
-      const otherFilename = key.name.replace('desc:', '');
+    for (const key of listResult.keys) {
+      const otherFilename = key.name.replace(/^desc:/, '');
       if (otherFilename === filename) continue;
 
       const otherDesc = await env.IMAGE_CACHE.get(key.name);
@@ -73,10 +94,11 @@ export async function onRequestGet({ params, env, request }) {
       }
     }
 
+    // 成功响应
     return new Response(JSON.stringify({
       currentFile: filename,
       description: currentDesc,
-      result: semanticSimilar.length ? 'semantic_similar' : 'unique',
+      result: semanticSimilar.length > 0 ? 'semantic_similar' : 'unique',
       similarImages: semanticSimilar.map(s => ({
         filename: s.filename,
         type: 'semantic',
@@ -87,20 +109,24 @@ export async function onRequestGet({ params, env, request }) {
     });
 
   } catch (e) {
-    console.error('Analyze error:', e);
-    return new Response(`服务器错误: ${e.message}`, { status: 500 });
+    console.error('Analyze function error:', e.message, e.stack);
+    return new Response(JSON.stringify({ error: e.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
 
-// ========== 辅助函数 ==========
-
+// ========== 辅助函数：文本相似度（Jaccard 相似系数） ==========
 function textSimilarity(a, b) {
-  const wordsA = new Set(a.toLowerCase().match(/\w+/g) || []);
-  const wordsB = new Set(b.toLowerCase().match(/\w+/g) || []);
+  const wordsA = new Set((a.toLowerCase().match(/\w+/g) || []));
+  const wordsB = new Set((b.toLowerCase().match(/\w+/g) || []));
   if (wordsA.size === 0 || wordsB.size === 0) return 0;
+
   let intersection = 0;
   for (const word of wordsA) {
     if (wordsB.has(word)) intersection++;
   }
+
   return intersection / Math.max(wordsA.size, wordsB.size);
 }
