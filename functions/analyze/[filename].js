@@ -1,7 +1,7 @@
 // functions/analyze/[filename].js
 // 使用 DashScope OpenAI 兼容模式（与本地 PowerShell 测试一致）
 
-export async function onRequestGet({ params, env, request }) {
+export async function onRequest({ params, env, request }) {
   const { filename } = params;
 
   // 验证授权
