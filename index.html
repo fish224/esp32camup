@@ -351,10 +351,17 @@
       analysisCache.set(filename, result);
       displayAnalysisResult(filename, result);
     } catch (e) {
-      document.getElementById('loading').style.display = 'none';
-      btn.disabled = false;
-      btn.textContent = '查重';
-      alert('分析失败：' + e.message);
+      // 显示更详细的错误信息
+  const errorEl = document.getElementById(`result-${filename}`);
+  if (errorEl) {
+    errorEl.innerHTML = `❌ 分析失败: ${e.message}`;
+    errorEl.className = 'analysis-result';
+    errorEl.style.backgroundColor = '#ffebee';
+    errorEl.style.color = '#c62828';
+    errorEl.style.display = 'block';
+  } else {
+    alert('分析失败：' + e.message);
+    }
     }
   }
 
