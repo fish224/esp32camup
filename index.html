@@ -25,10 +25,16 @@
       transition: transform 0.2s ease;
       padding: 10px;
       border-radius: 6px;
+      cursor: pointer;
     }
 
     .img-item:hover {
       background-color: #f0f0f0;
+    }
+
+    .img-item.selected {
+      background-color: #e8f5e9;
+      outline: 2px solid #2e7d32;
     }
 
     img {
@@ -65,6 +71,12 @@
 
     button:hover {
       background: #f0f0f0;
+    }
+
+    button:disabled {
+      background: #eee;
+      cursor: not-allowed;
+      color: #999;
     }
 
     .pagination {
@@ -140,6 +152,19 @@
       50% { outline-color: #ffca28; }
       100% { outline-color: #ff8f00; }
     }
+
+    .batch-actions {
+      margin: 15px 0;
+      padding: 10px;
+      background-color: #f8f9fa;
+      border-radius: 6px;
+    }
+
+    .selection-info {
+      margin-left: 10px;
+      font-size: 12px;
+      color: #666;
+    }
   </style>
 </head>
 <body>
@@ -156,13 +181,18 @@
 <div id="gallerySection" style="display:none;">
   <h2>ESP32 相机图库</h2>
   <button onclick="logout()">退出登录</button>
+  
+  <!-- 批量操作按钮（仅登录后显示） -->
+  <div class="batch-actions">
+    <button onclick="batchAnalyze()">批量查重当前页</button>
+    <button onclick="aiMarkedDelete()" style="background-color: #ffeeee; color: #d32f2f;">AI标记删除（高重复）</button>
+    <button onclick="toggleSelectionMode()" id="toggleSelectBtn">开启手动选择</button>
+    <button onclick="manualBatchDelete()" id="manualDeleteBtn" style="background-color: #ffebee; color: #b71c1c;" disabled>手动批量删除</button>
+    <span class="selection-info" id="selectionInfo">已选择: 0 个文件</span>
+  </div>
+  
   <div id="gallery"></div>
   <div id="pagination"></div>
-</div>
-<!-- 在<h2>ESP32 相机图库</h2>下方添加批量操作按钮 -->
-<div style="margin: 15px 0;">
-  <button onclick="batchAnalyze()">批量查重当前页</button>
-  <button onclick="batchDeleteDuplicates()" style="background-color: #ffeeee; color: #d32f2f;">批量删除高重复图片</button>
 </div>
   
 <!-- 全局加载提示 -->
@@ -174,23 +204,31 @@
 
   // 会话级缓存
   const analysisCache = new Map();
+  // 手动选择的图片集合
+  let selectedImages = new Set();
+  // 选择模式状态
+  let isSelectionMode = false;
 
- // 修改window.onload事件
-window.onload = async () => {
-  const token = localStorage.getItem('authToken');
-  if (token) {
-    // 验证Token有效性
-    const isValid = await checkTokenValidity();
-    if (isValid) {
-      showGallery();
-      loadImages(1);
+  // 页面加载事件
+  window.onload = async () => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      // 验证Token有效性
+      const isValid = await checkTokenValidity();
+      if (isValid) {
+        showGallery();
+        loadImages(1);
+      } else {
+        // Token无效时显示登录界面
+        document.getElementById('loginSection').style.display = 'block';
+      }
     } else {
-      // Token无效时显示登录界面
+      // 无Token时显示登录界面
       document.getElementById('loginSection').style.display = 'block';
     }
-  }
-};
+  };
 
+  // 登录功能
   async function login() {
     const password = document.getElementById('password').value;
     const msgEl = document.getElementById('loginMessage');
@@ -225,17 +263,24 @@ window.onload = async () => {
     }
   }
 
+  // 退出登录
   function logout() {
     localStorage.removeItem('authToken');
     document.getElementById('gallerySection').style.display = 'none';
     document.getElementById('loginSection').style.display = 'block';
+    // 重置选择状态
+    selectedImages.clear();
+    isSelectionMode = false;
+    updateSelectionUI();
   }
 
+  // 显示图库区域
   function showGallery() {
     document.getElementById('loginSection').style.display = 'none';
     document.getElementById('gallerySection').style.display = 'block';
   }
 
+  // 加载图片列表
   async function loadImages(page = 1) {
     const token = localStorage.getItem('authToken');
     if (!token) return;
@@ -270,16 +315,19 @@ window.onload = async () => {
     }
   }
 
+  // 渲染图库
   function renderGallery(files) {
     const galleryEl = document.getElementById('gallery');
     galleryEl.innerHTML = files.map(file => `
-      <div class="img-item" id="item-${file.name}">
+      <div class="img-item ${selectedImages.has(file.name) ? 'selected' : ''}" 
+           id="item-${file.name}" 
+           onclick="${isSelectionMode ? `toggleImageSelection('${file.name}')` : ''}">
         <img src="${R2_PUBLIC_URL}/${encodeURIComponent(file.name)}" 
              onerror="this.src='https://via.placeholder.com/160x120?text=加载失败';" />
         <div class="filename">${file.name}</div>
-        <button onclick="deleteImage('${file.name}')">删除</button>
-        <button onclick="downloadImage('${file.name}')">下载</button>
-        <button onclick="checkDuplicate('${file.name}')" id="btn-analyze-${file.name}">查重</button>
+        <button onclick="event.stopPropagation(); deleteImage('${file.name}')">删除</button>
+        <button onclick="event.stopPropagation(); downloadImage('${file.name}')">下载</button>
+        <button onclick="event.stopPropagation(); checkDuplicate('${file.name}')" id="btn-analyze-${file.name}">查重</button>
         <div class="analysis-result" id="result-${file.name}"></div>
       </div>
     `).join('');
@@ -290,8 +338,12 @@ window.onload = async () => {
         displayAnalysisResult(file.name, analysisCache.get(file.name));
       }
     }
+
+    // 更新选择信息UI
+    updateSelectionUI();
   }
 
+  // 渲染分页
   function renderPagination(pagination) {
     const el = document.getElementById('pagination');
     el.innerHTML = '';
@@ -319,7 +371,7 @@ window.onload = async () => {
     el.appendChild(next);
   }
 
-  // 查重功能优化
+  // 查重功能（增加重试机制）
   async function checkDuplicate(filename) {
     const token = localStorage.getItem('authToken');
     if (!token) {
@@ -343,21 +395,33 @@ window.onload = async () => {
     document.getElementById('loading').style.display = 'block';
 
     try {
-      // 使用正确的路由格式（确保与 _routes.json 匹配）
-      const res = await fetch(`/analyze/${encodeURIComponent(filename)}`, {
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+      // 增加重试机制，最多3次
+      let retryCount = 0;
+      let res;
+      while (retryCount < 3) {
+        try {
+          res = await fetch(`/analyze/${encodeURIComponent(filename)}`, {
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 10000 // 10秒超时
+          });
+          if (res.ok) break;
+        } catch (e) {
+          console.log(`查重重试 ${retryCount + 1}/3:`, e.message);
         }
-      });
+        retryCount++;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
 
       document.getElementById('loading').style.display = 'none';
       btn.disabled = false;
       btn.textContent = '查重';
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: '未知错误' }));
-        throw new Error(err.error || `分析失败 (HTTP ${res.status})`);
+      if (!res || !res.ok) {
+        const err = await res?.json().catch(() => ({ error: '未知错误' }));
+        throw new Error(err?.error || `分析失败 (HTTP ${res?.status || '超时'})`);
       }
 
       const result = await res.json();
@@ -365,19 +429,20 @@ window.onload = async () => {
       displayAnalysisResult(filename, result);
     } catch (e) {
       // 显示更详细的错误信息
-  const errorEl = document.getElementById(`result-${filename}`);
-  if (errorEl) {
-    errorEl.innerHTML = `❌ 分析失败: ${e.message}`;
-    errorEl.className = 'analysis-result';
-    errorEl.style.backgroundColor = '#ffebee';
-    errorEl.style.color = '#c62828';
-    errorEl.style.display = 'block';
-  } else {
-    alert('分析失败：' + e.message);
-    }
+      const errorEl = document.getElementById(`result-${filename}`);
+      if (errorEl) {
+        errorEl.innerHTML = `❌ 分析失败: ${e.message}，请重试`;
+        errorEl.className = 'analysis-result';
+        errorEl.style.backgroundColor = '#ffebee';
+        errorEl.style.color = '#c62828';
+        errorEl.style.display = 'block';
+      } else {
+        alert('分析失败：' + e.message + '，请重试');
+      }
     }
   }
 
+  // 显示分析结果
   function displayAnalysisResult(filename, result) {
     const el = document.getElementById(`result-${filename}`);
     if (!el) return;
@@ -424,7 +489,7 @@ window.onload = async () => {
     }
   }
 
-  // 删除功能
+  // 单个删除功能
   async function deleteImage(filename) {
     if (!confirm(`确定删除 ${filename}？`)) return;
 
@@ -436,8 +501,10 @@ window.onload = async () => {
       });
 
       if (res.ok) {
-        // 删除成功后清除缓存
+        // 删除成功后清除缓存和选择状态
         analysisCache.delete(filename);
+        selectedImages.delete(filename);
+        updateSelectionUI();
         alert('删除成功');
         loadImages();
       } else {
@@ -475,74 +542,267 @@ window.onload = async () => {
     });
   }
   
-async function checkTokenValidity() {
-  const token = localStorage.getItem('authToken');
-  if (!token) return false;
-  
-  try {
-    // 调用一个轻量的验证接口（如果没有可以用/browse替代）
-    const res = await fetch('/browse?page=1&limit=1', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+  // 验证Token有效性
+  async function checkTokenValidity() {
+    const token = localStorage.getItem('authToken');
+    if (!token) return false;
     
-    if (res.status === 401) {
-      localStorage.removeItem('authToken');
+    try {
+      // 调用轻量的验证接口
+      const res = await fetch('/browse?page=1&limit=1', {
+        headers: { 'Authorization': `Bearer ${token}` },
+        timeout: 5000
+      });
+      
+      if (res.status === 401) {
+        localStorage.removeItem('authToken');
+        return false;
+      }
+      return res.ok;
+    } catch (e) {
+      console.error('Token验证失败:', e);
       return false;
     }
-    return true;
-  } catch (e) {
-    console.error('Token验证失败:', e);
-    return false;
-  }
-}
-
-// 批量分析当前页所有图片
-async function batchAnalyze() {
-  const token = localStorage.getItem('authToken');
-  if (!token) {
-    alert('请先登录');
-    return;
   }
 
-  const imgItems = document.querySelectorAll('.img-item');
-  if (imgItems.length === 0) {
-    alert('当前页面没有图片');
-    return;
-  }
+  // 批量分析当前页所有图片
+  async function batchAnalyze() {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      alert('请先登录');
+      return;
+    }
 
-  document.getElementById('loading').style.display = 'block';
-  
-  // 逐个分析（避免并发过高）
-  for (let i = 0; i < imgItems.length; i++) {
-    const item = imgItems[i];
-    const filename = item.querySelector('.filename').textContent;
-    const btn = document.getElementById(`btn-analyze-${filename}`);
+    const imgItems = document.querySelectorAll('.img-item');
+    if (imgItems.length === 0) {
+      alert('当前页面没有图片');
+      return;
+    }
+
+    document.getElementById('loading').style.display = 'block';
     
-    if (!analysisCache.has(filename) && btn && !btn.disabled) {
+    // 逐个分析（避免并发过高）
+    let successCount = 0;
+    let failCount = 0;
+    for (let i = 0; i < imgItems.length; i++) {
+      const item = imgItems[i];
+      const filename = item.querySelector('.filename').textContent;
+      const btn = document.getElementById(`btn-analyze-${filename}`);
+      
+      // 更新进度
+      document.getElementById('loading').textContent = `正在分析 ${i+1}/${imgItems.length}`;
+      
+      if (!analysisCache.has(filename) && btn && !btn.disabled) {
+        try {
+          // 增加重试机制
+          let retryCount = 0;
+          let res;
+          while (retryCount < 2) {
+            try {
+              res = await fetch(`/analyze/${encodeURIComponent(filename)}`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 10000
+              });
+              if (res.ok) break;
+            } catch (e) {
+              retryCount++;
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+          }
+          
+          if (res && res.ok) {
+            const result = await res.json();
+            analysisCache.set(filename, result);
+            displayAnalysisResult(filename, result);
+            successCount++;
+          } else {
+            failCount++;
+          }
+        } catch (e) {
+          console.error(`批量分析${filename}失败:`, e);
+          failCount++;
+        }
+      } else {
+        successCount++; // 已分析过的算成功
+      }
+    }
+
+    document.getElementById('loading').style.display = 'none';
+    alert(`批量分析完成！成功: ${successCount} 个，失败: ${failCount} 个`);
+  }
+
+  // AI标记删除（删除高重复图片）
+  async function aiMarkedDelete() {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      alert('请先登录');
+      return;
+    }
+
+    // 收集所有标记为相似的图片
+    const duplicateFiles = [];
+    analysisCache.forEach((result, filename) => {
+      if (result.result === 'semantic_similar') {
+        duplicateFiles.push(filename);
+      }
+    });
+
+    if (duplicateFiles.length === 0) {
+      alert('当前页面没有检测到高重复图片');
+      return;
+    }
+
+    // 确认删除
+    const confirmMsg = `检测到 ${duplicateFiles.length} 个高重复图片：\n${duplicateFiles.join('\n')}\n\n确定要删除这些图片吗？`;
+    if (!confirm(confirmMsg)) return;
+
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('loading').textContent = '正在删除重复图片...';
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // 逐个删除
+    for (const filename of duplicateFiles) {
       try {
-        const res = await fetch(`/analyze/${encodeURIComponent(filename)}`, {
+        const res = await fetch(`/delete/${encodeURIComponent(filename)}`, {
+          method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        
+
         if (res.ok) {
-          const result = await res.json();
-          analysisCache.set(filename, result);
-          displayAnalysisResult(filename, result);
+          analysisCache.delete(filename);
+          selectedImages.delete(filename);
+          successCount++;
+        } else {
+          failCount++;
         }
       } catch (e) {
-        console.error(`批量分析${filename}失败:`, e);
+        console.error(`删除${filename}失败:`, e);
+        failCount++;
       }
-      
-      // 显示进度
-      document.getElementById('loading').textContent = `正在分析 ${i+1}/${imgItems.length}`;
     }
+
+    document.getElementById('loading').style.display = 'none';
+    updateSelectionUI();
+    loadImages();
+    alert(`删除完成！成功: ${successCount} 个，失败: ${failCount} 个`);
   }
 
-  document.getElementById('loading').style.display = 'none';
-  alert('批量分析完成');
-}
+  // 切换手动选择模式
+  function toggleSelectionMode() {
+    isSelectionMode = !isSelectionMode;
+    const btn = document.getElementById('toggleSelectBtn');
+    const galleryItems = document.querySelectorAll('.img-item');
 
-  
+    if (isSelectionMode) {
+      btn.textContent = '关闭手动选择';
+      btn.style.backgroundColor = '#ffebee';
+      btn.style.color = '#d32f2f';
+      // 给所有图片添加点击选择事件
+      galleryItems.forEach(item => {
+        item.style.cursor = 'pointer';
+        item.onclick = function() {
+          const filename = this.querySelector('.filename').textContent;
+          toggleImageSelection(filename);
+        };
+      });
+    } else {
+      btn.textContent = '开启手动选择';
+      btn.style.backgroundColor = '';
+      btn.style.color = '';
+      // 移除点击选择事件
+      galleryItems.forEach(item => {
+        item.style.cursor = '';
+        item.onclick = null;
+      });
+    }
+
+    // 清空选择
+    selectedImages.clear();
+    updateSelectionUI();
+  }
+
+  // 切换图片选择状态
+  function toggleImageSelection(filename) {
+    if (selectedImages.has(filename)) {
+      selectedImages.delete(filename);
+      document.getElementById(`item-${filename}`).classList.remove('selected');
+    } else {
+      selectedImages.add(filename);
+      document.getElementById(`item-${filename}`).classList.add('selected');
+    }
+    updateSelectionUI();
+  }
+
+  // 更新选择信息UI
+  function updateSelectionUI() {
+    const count = selectedImages.size;
+    const infoEl = document.getElementById('selectionInfo');
+    const deleteBtn = document.getElementById('manualDeleteBtn');
+    
+    infoEl.textContent = `已选择: ${count} 个文件`;
+    deleteBtn.disabled = count === 0;
+
+    // 更新选中样式
+    selectedImages.forEach(filename => {
+      const el = document.getElementById(`item-${filename}`);
+      if (el) el.classList.add('selected');
+    });
+  }
+
+  // 手动批量删除
+  async function manualBatchDelete() {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      alert('请先登录');
+      return;
+    }
+
+    const files = Array.from(selectedImages);
+    if (files.length === 0) {
+      alert('请先选择要删除的图片');
+      return;
+    }
+
+    // 确认删除弹窗
+    const confirmMsg = `你选择了 ${files.length} 个文件：\n${files.join('\n')}\n\n确定要永久删除这些文件吗？`;
+    if (!confirm(confirmMsg)) return;
+
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('loading').textContent = `正在删除 ${files.length} 个文件...`;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // 逐个删除
+    for (const filename of files) {
+      try {
+        const res = await fetch(`/delete/${encodeURIComponent(filename)}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (res.ok) {
+          analysisCache.delete(filename);
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch (e) {
+        console.error(`删除${filename}失败:`, e);
+        failCount++;
+      }
+    }
+
+    // 重置选择状态
+    selectedImages.clear();
+    
+    document.getElementById('loading').style.display = 'none';
+    updateSelectionUI();
+    loadImages();
+    alert(`批量删除完成！成功: ${successCount} 个，失败: ${failCount} 个`);
+  }
 </script>
 
 </body>
