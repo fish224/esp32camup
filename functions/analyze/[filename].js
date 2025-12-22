@@ -1,10 +1,18 @@
-// functions/analyze/[filename].js
-// 使用 DashScope OpenAI 兼容模式（与本地 PowerShell 测试一致）
+/**
+ * 图片语义查重服务（使用 DashScope qwen3-vl-flash）
+ * 
+ * 要求环境变量：
+ * - R2_PUBLIC_URL (Plain Text): 图片公网前缀，如 https://r2.yuxinyu.dpdns.org
+ * - DASHSCOPE_API_KEY (Secret): DashScope API 密钥
+ * 
+ * 要求绑定：
+ * - KV Namespace: IMAGE_CACHE (用于缓存 AI 描述)
+ */
 
 export async function onRequest({ params, env, request }) {
   const { filename } = params;
 
-  // 验证授权
+  // === 1. 验证授权 ===
   const authHeader = request.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -14,33 +22,39 @@ export async function onRequest({ params, env, request }) {
   }
 
   try {
+    // === 2. 构建图片 URL（从环境变量）===
+    if (!env.R2_PUBLIC_URL) {
+      throw new Error('Missing R2_PUBLIC_URL environment variable');
+    }
     const imageUrl = `${env.R2_PUBLIC_URL}/${encodeURIComponent(filename)}`;
 
-    // Step 1: 检查缓存描述
-    let currentDesc = await env.IMAGE_CACHE.get(`desc:${filename}`);
+    // === 3. 检查缓存描述 ===
+    let currentDesc = await env.IMAGE_CACHE?.get(`desc:${filename}`);
     if (!currentDesc) {
-      // ✅ 调用 DashScope OpenAI 兼容模式（与本地一致）
-      const vlRes = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+      // === 4. 调用 DashScope AI（OpenAI 兼容模式）===
+      if (!env.DASHSCOPE_API_KEY) {
+        throw new Error('Missing DASHSCOPE_API_KEY secret');
+      }
+
+      const aiResponse = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${env.DASHSCOPE_API_KEY}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: "qwen3-vl-flash", // ✅ 兼容模式支持此模型名
+          model: 'qwen3-vl-flash',
           messages: [
             {
-              role: "user",
+              role: 'user',
               content: [
                 {
-                  type: "image_url",
-                  image_url: {
-                    url: imageUrl // 必须是公网可访问 URL
-                  }
+                  type: 'image_url',
+                  image_url: { url: imageUrl }
                 },
                 {
-                  type: "text",
-                  text: "请用一句话精确描述这张图片的主要内容，包括物体、人物、场景。不要解释，只输出描述。"
+                  type: 'text',
+                  text: '请用一句话精确描述这张图片的主要内容，包括物体、人物、场景。不要解释，只输出描述。'
                 }
               ]
             }
@@ -49,67 +63,61 @@ export async function onRequest({ params, env, request }) {
         })
       });
 
-      // 处理 HTTP 错误
-      if (!vlRes.ok) {
-        const errText = await vlRes.text();
-        console.error('DashScope API HTTP Error:', vlRes.status, errText);
-        throw new Error(`AI 服务返回错误: ${vlRes.status}`);
+      // === 5. 处理 AI 响应 ===
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error('DashScope API Error:', aiResponse.status, errorText);
+        throw new Error(`AI 服务返回错误: ${aiResponse.status}`);
       }
 
-      const data = await vlRes.json();
-
-      // ✅ 安全解析 OpenAI 格式响应
-      if (!data?.choices?.[0]?.message?.content) {
-        console.error('Unexpected AI response structure:', data);
-        throw new Error('AI 返回数据格式异常，请检查模型或 API Key');
+      const data = await aiResponse.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content || typeof content !== 'string') {
+        console.error('Invalid AI response:', data);
+        throw new Error('AI 返回格式异常');
       }
 
-      currentDesc = data.choices[0].message.content.trim();
-
-      if (!currentDesc || currentDesc.length < 3) {
-        throw new Error('AI 返回描述过短或为空');
+      currentDesc = content.trim();
+      if (currentDesc.length < 5) {
+        throw new Error('AI 返回描述过短');
       }
 
-      // 缓存描述
-      await env.IMAGE_CACHE.put(`desc:${filename}`, currentDesc);
+      // === 6. 缓存结果（持久化到 KV）===
+      await env.IMAGE_CACHE?.put(`desc:${filename}`, currentDesc);
     }
 
-    // Step 2: 语义查重（与其他已缓存描述比对）
-    const listResult = await env.IMAGE_CACHE.list({ prefix: 'desc:' });
+    // === 7. 语义查重（与其他缓存项比对）===
+    const listResult = await env.IMAGE_CACHE?.list({ prefix: 'desc:' }) ?? { keys: [] };
     const semanticSimilar = [];
 
     for (const key of listResult.keys) {
       const otherFilename = key.name.replace(/^desc:/, '');
       if (otherFilename === filename) continue;
 
-      const otherDesc = await env.IMAGE_CACHE.get(key.name);
+      const otherDesc = await env.IMAGE_CACHE?.get(key.name);
       if (!otherDesc) continue;
 
-      const sim = textSimilarity(currentDesc, otherDesc);
-      if (sim > 0.65) {
+      const similarity = textSimilarity(currentDesc, otherDesc);
+      if (similarity > 0.65) {
         semanticSimilar.push({
           filename: otherFilename,
-          similarity: sim.toFixed(2)
+          similarity: similarity.toFixed(2)
         });
       }
     }
 
-    // 成功响应
+    // === 8. 返回成功响应 ===
     return new Response(JSON.stringify({
       currentFile: filename,
       description: currentDesc,
       result: semanticSimilar.length > 0 ? 'semantic_similar' : 'unique',
-      similarImages: semanticSimilar.map(s => ({
-        filename: s.filename,
-        type: 'semantic',
-        similarity: s.similarity
-      }))
+      similarImages: semanticSimilar
     }), {
       headers: { 'Content-Type': 'application/json' }
     });
 
   } catch (e) {
-    console.error('Analyze function error:', e.message, e.stack);
+    console.error('Function execution error:', e.message, e.stack);
     return new Response(JSON.stringify({ error: e.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' }
@@ -117,7 +125,7 @@ export async function onRequest({ params, env, request }) {
   }
 }
 
-// ========== 辅助函数：文本相似度（Jaccard 相似系数） ==========
+// ========== 辅助函数：文本相似度（Jaccard 系数）==========
 function textSimilarity(a, b) {
   const wordsA = new Set((a.toLowerCase().match(/\w+/g) || []));
   const wordsB = new Set((b.toLowerCase().match(/\w+/g) || []));
