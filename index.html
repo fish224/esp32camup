@@ -4,22 +4,26 @@
   <meta charset="UTF-8" />
   <title>ESP32 相机图库</title>
   <style>
-    /* ...（您的原有 CSS 完全保留，此处省略以节省篇幅）... */
     body {
       font-family: Arial, sans-serif;
       padding: 20px;
       background-color: #f9f9f9;
       margin: 0 auto;
+      max-width: 1400px;
     }
+
     #gallery {
       display: grid;
       grid-template-columns: repeat(7, minmax(160px, 1fr));
       gap: 20px;
-      max-width: 1340px;
       margin: 0 auto;
       overflow-x: auto;
     }
-    .img-item { text-align: center; }
+
+    .img-item {
+      text-align: center;
+    }
+
     img {
       width: 100%;
       height: 120px;
@@ -28,7 +32,11 @@
       border-radius: 4px;
       transition: transform 0.2s ease;
     }
-    img:hover { transform: scale(1.05); }
+
+    img:hover {
+      transform: scale(1.05);
+    }
+
     .filename {
       margin: 5px 0;
       font-size: 11px;
@@ -37,6 +45,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+
     button {
       margin: 2px;
       padding: 4px 8px;
@@ -45,16 +54,22 @@
       background: #fff;
       cursor: pointer;
     }
-    button:hover { background: #f0f0f0; }
+
+    button:hover {
+      background: #f0f0f0;
+    }
+
     .pagination {
       margin: 20px 0;
       text-align: center;
       font-size: 14px;
     }
+
     .pagination button {
       margin: 0 5px;
       padding: 5px 10px;
     }
+
     #loading {
       position: fixed;
       top: 20px;
@@ -66,6 +81,7 @@
       display: none;
       z-index: 1000;
     }
+
     .analysis-result {
       font-size: 11px;
       margin-top: 4px;
@@ -74,29 +90,40 @@
       background-color: #f0f0f0;
       display: none;
     }
+
     .analysis-result.unique {
       background-color: #e8f5e9;
       color: #2e7d32;
     }
+
     .analysis-result.semantic {
       background-color: #fff8e1;
       color: #ff8f00;
+    }
+
+    #loginSection {
+      max-width: 400px;
+      margin: 100px auto;
+      padding: 20px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
   </style>
 </head>
 <body>
 
 <!-- 登录区域 -->
-<div id="loginSection" class="login">
+<div id="loginSection">
   <h2>管理员登录</h2>
-  <input type="password" id="password" placeholder="输入密码" />
-  <button onclick="login()">登录</button>
-  <div id="loginMessage"></div>
+  <input type="password" id="password" placeholder="输入密码" style="width:100%; padding:8px; margin:10px 0;" />
+  <button onclick="login()" style="width:100%; padding:8px;">登录</button>
+  <div id="loginMessage" style="margin-top:10px; min-height:20px;"></div>
 </div>
 
 <!-- 图库区域 -->
-<div id="gallerySection" class="gallery" style="display:none;">
-  <h2>图片库</h2>
+<div id="gallerySection" style="display:none;">
+  <h2>ESP32 相机图库</h2>
   <button onclick="logout()">退出登录</button>
   <div id="gallery"></div>
   <div id="pagination"></div>
@@ -106,11 +133,10 @@
 <div id="loading">AI 分析中，请稍候...</div>
 
 <script>
-  // ✅ 移除硬编码 R2_PUBLIC_URL！
-  // 图片 URL 由后端 /browse 接口返回，或前端拼接（但需确保域名正确）
-  // 这里我们假设 /browse 返回的是完整 URL，或前端使用固定前缀（安全起见建议后端返回）
+  // R2 公共访问 URL（需与后端一致）
+  const R2_PUBLIC_URL = 'https://r2.yuxinyu.dpdns.org';
 
-  // ✅ 保留 session-level 缓存（仅避免同一页面多次点击）
+  // 会话级缓存（避免同一页面重复请求分析）
   const analysisCache = new Map();
 
   window.onload = () => {
@@ -123,23 +149,35 @@
 
   async function login() {
     const password = document.getElementById('password').value;
-    // ⚠️ 您需要实现 /auth 接口（或改为前端验证）
-    // 为简化，这里改为前端验证（与之前一致）
-    const EXPECTED_PASSWORD = 'your_password_here'; // ←←← 请修改！
-
     const msgEl = document.getElementById('loginMessage');
-    if (password === EXPECTED_PASSWORD) {
-      const token = btoa(password); // 简单 token
-      localStorage.setItem('authToken', token);
-      msgEl.style.color = 'green';
-      msgEl.textContent = '登录成功';
-      setTimeout(() => {
-        showGallery();
-        loadImages(1);
-      }, 500);
-    } else {
+    msgEl.textContent = '验证中...';
+    msgEl.style.color = '#555';
+
+    try {
+      const res = await fetch('/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'admin', password })
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        localStorage.setItem('authToken', data.token);
+        msgEl.style.color = 'green';
+        msgEl.textContent = data.message;
+        setTimeout(() => {
+          showGallery();
+          loadImages(1);
+        }, 800);
+      } else {
+        msgEl.style.color = 'red';
+        msgEl.textContent = data.error || '登录失败';
+      }
+    } catch (e) {
       msgEl.style.color = 'red';
-      msgEl.textContent = '密码错误';
+      msgEl.textContent = '网络错误，请重试';
+      console.error('Login error:', e);
     }
   }
 
@@ -154,33 +192,36 @@
     document.getElementById('gallerySection').style.display = 'block';
   }
 
-  // === 新增：获取 R2 前缀（可选：未来可从 /config 获取）===
-  const R2_PUBLIC_URL = 'https://r2.yuxinyu.dpdns.org'; // 临时保留，但应确保与后端一致
-
+  // === 获取图片列表（调用 /list 接口）===
   async function loadImages(page = 1) {
-    // 模拟文件列表（实际应调用 /list 或 /browse）
-    // 💡 建议：实现一个 /list 接口返回文件名数组
-    try {
-      const res = await fetch('/list'); // ← 您可自行实现此接口
-      const files = await res.json();
-      
-      // 分页逻辑（简单模拟）
-      const limit = 28;
-      const start = (page - 1) * limit;
-      const paginatedFiles = files.slice(start, start + limit);
-      const totalPages = Math.ceil(files.length / limit);
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
 
-      renderGallery(paginatedFiles);
-      renderPagination({ currentPage: page, totalPages, hasPrev: page > 1, hasNext: page < totalPages });
+    try {
+      const url = new URL('/list', location.origin);
+      url.searchParams.set('page', page);
+      url.searchParams.set('limit', 28);
+
+      const res = await fetch(url.toString(), {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          alert('登录已过期，请重新登录');
+          logout();
+        } else {
+          alert('获取图片列表失败');
+        }
+        return;
+      }
+
+      const data = await res.json();
+      renderGallery(data.files);
+      renderPagination(data.pagination);
     } catch (e) {
-      // 回退到硬编码示例（仅用于演示）
-      const exampleFiles = [
-        'esp32_cam_20251215145423.jpg',
-        'esp32_cam_20251215145442.jpg',
-        'esp32_cam_20251215145224.jpg'
-      ];
-      renderGallery(exampleFiles.map(name => ({ name })));
-      renderPagination({ currentPage: 1, totalPages: 1, hasPrev: false, hasNext: false });
+      console.error('Load images error:', e);
+      alert('加载图片失败');
     }
   }
 
@@ -198,7 +239,7 @@
       </div>
     `).join('');
 
-    // 恢复已分析结果（本次会话）
+    // 恢复本次会话的分析结果
     for (const file of files) {
       if (analysisCache.has(file.name)) {
         displayAnalysisResult(file.name, analysisCache.get(file.name));
@@ -207,33 +248,33 @@
   }
 
   function renderPagination(pagination) {
-    const paginationEl = document.getElementById('pagination');
-    paginationEl.innerHTML = '';
+    const el = document.getElementById('pagination');
+    el.innerHTML = '';
 
     if (pagination.totalPages <= 1) return;
 
-    const prevBtn = document.createElement('button');
-    prevBtn.textContent = '上一页';
-    prevBtn.disabled = !pagination.hasPrev;
-    prevBtn.onclick = () => loadImages(pagination.currentPage - 1);
-    paginationEl.appendChild(prevBtn);
+    const prev = document.createElement('button');
+    prev.textContent = '上一页';
+    prev.disabled = !pagination.hasPrev;
+    prev.onclick = () => loadImages(pagination.currentPage - 1);
+    el.appendChild(prev);
 
     for (let i = 1; i <= pagination.totalPages; i++) {
       const btn = document.createElement('button');
       btn.textContent = i;
       if (i === pagination.currentPage) btn.style.backgroundColor = '#e0e0e0';
       btn.onclick = () => loadImages(i);
-      paginationEl.appendChild(btn);
+      el.appendChild(btn);
     }
 
-    const nextBtn = document.createElement('button');
-    nextBtn.textContent = '下一页';
-    nextBtn.disabled = !pagination.hasNext;
-    nextBtn.onclick = () => loadImages(pagination.currentPage + 1);
-    paginationEl.appendChild(nextBtn);
+    const next = document.createElement('button');
+    next.textContent = '下一页';
+    next.disabled = !pagination.hasNext;
+    next.onclick = () => loadImages(pagination.currentPage + 1);
+    el.appendChild(next);
   }
 
-  // ========== 查重功能（核心修改点）==========
+  // ========== 查重功能 ==========
   async function checkDuplicate(filename) {
     const token = localStorage.getItem('authToken');
     if (!token) {
@@ -241,7 +282,6 @@
       return;
     }
 
-    // ✅ 检查本地会话缓存（避免重复点击）
     if (analysisCache.has(filename)) {
       displayAnalysisResult(filename, analysisCache.get(filename));
       return;
@@ -252,7 +292,6 @@
     document.getElementById('loading').style.display = 'block';
 
     try {
-      // ✅ 调用 Cloudflare Pages Functions
       const res = await fetch(`/analyze/${encodeURIComponent(filename)}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -261,18 +300,17 @@
       btn.disabled = false;
 
       if (!res.ok) {
-        const errorText = await res.text().catch(() => '未知错误');
-        throw new Error(errorText || '分析失败');
+        const err = await res.json().catch(() => ({ error: '未知错误' }));
+        throw new Error(err.error || '分析失败');
       }
 
       const result = await res.json();
-      analysisCache.set(filename, result); // 本地缓存（会话级）
+      analysisCache.set(filename, result);
       displayAnalysisResult(filename, result);
     } catch (e) {
       document.getElementById('loading').style.display = 'none';
       btn.disabled = false;
       alert('分析失败：' + e.message);
-      console.error('查重错误:', e);
     }
   }
 
@@ -297,13 +335,26 @@
     el.style.display = 'block';
   }
 
-  // 删除和下载功能（保持不变）
+  // 删除 & 下载（简单实现）
   async function deleteImage(filename) {
     if (!confirm(`确定删除 ${filename}？`)) return;
-    alert('删除功能需后端支持，当前未实现');
+
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`/delete/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (res.ok) {
+      alert('删除成功');
+      loadImages(); // 刷新当前页
+    } else {
+      const err = await res.json().catch(() => ({ error: '操作失败' }));
+      alert('删除失败：' + err.error);
+    }
   }
 
-  async function downloadImage(filename) {
+  function downloadImage(filename) {
     const url = `${R2_PUBLIC_URL}/${encodeURIComponent(filename)}`;
     const a = document.createElement('a');
     a.href = url;
