@@ -37,7 +37,6 @@
       outline: 2px solid #2e7d32;
     }
 
-    /* 新增：视觉重复标记样式 */
     .img-item.visual-duplicate {
       border: 2px solid #ff5722;
       background-color: #fff3e0;
@@ -172,7 +171,6 @@
       color: #666;
     }
 
-    /* 新增：汉明距离设置样式 */
     .hamming-setting {
       display: flex;
       align-items: center;
@@ -220,9 +218,10 @@
   </style>
 </head>
 <body>
-  <!-- 登录区域 -->
+  <!-- 登录区域（修复：新增用户名输入框） -->
   <div id="loginSection">
     <h2>管理员登录</h2>
+    <input type="text" id="username" placeholder="请输入用户名（默认admin）" value="admin" />
     <input type="password" id="password" placeholder="请输入登录密码" />
     <button onclick="login()">登录</button>
     <div id="loginMessage" style="margin-top:10px; min-height:20px; color:red;"></div>
@@ -233,22 +232,17 @@
     <h2>ESP32 相机图库</h2>
     <button onclick="logout()">退出登录</button>
     
-    <!-- 批量操作区（新增pHash/汉明距离功能） -->
+    <!-- 批量操作区 -->
     <div class="batch-actions">
       <button onclick="batchAnalyze()">批量查重当前页</button>
       <button onclick="aiMarkedDelete()" style="background-color: #ffeeee; color: #d32f2f;">AI标记删除（高重复）</button>
-      
-      <!-- 新增：pHash计算按钮 -->
       <button onclick="calculateAllPHash()" class="pHash-btn">计算当前页pHash</button>
-      
-      <!-- 新增：汉明距离设置 -->
       <div class="hamming-setting">
         <label>汉明距离阈值：</label>
         <input type="number" id="hammingThreshold" value="10" min="0" max="64" />
         <button onclick="markVisualDuplicates()" class="hamming-btn">标记视觉重复</button>
         <button onclick="deleteHammingDuplicates()" class="delete-hamming-btn">汉明删除</button>
       </div>
-      
       <button onclick="toggleSelectionMode()" id="toggleSelectBtn">开启手动选择</button>
       <button onclick="manualBatchDelete()" id="manualDeleteBtn" disabled>手动批量删除</button>
       <span class="selection-info" id="selectionInfo">已选择: 0 个文件</span>
@@ -259,22 +253,20 @@
   </div>
   
   <!-- 加载提示 -->
-  <div id="loading">AI 分析中，请稍候...</div>
+  <div id="loading">处理中，请稍候...</div>
 
   <script>
-    // 原有常量
+    // 核心常量配置
     const R2_PUBLIC_URL = 'https://r2.yuxinyu.dpdns.org';
     const analysisCache = new Map();
     const currentPageImages = new Set();
     let selectedImages = new Set();
     let isSelectionMode = false;
     const SIMILARITY_THRESHOLD = 0.7;
-    
-    // 新增：pHash缓存 + 视觉重复标记缓存
-    const pHashCache = new Map(); // 存储图片pHash: {filename: hash}
-    const visualDuplicateCache = new Set(); // 存储视觉重复的图片名
+    const pHashCache = new Map();
+    const visualDuplicateCache = new Set();
 
-    // 页面加载
+    // 页面初始化
     window.onload = async () => {
       const token = localStorage.getItem('authToken');
       if (token) {
@@ -290,24 +282,38 @@
       }
     };
 
-    // 登录逻辑
+    // 登录函数（修复：传递用户名+密码）
     async function login() {
-      const password = document.getElementById('password').value;
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
       const msgEl = document.getElementById('loginMessage');
       msgEl.textContent = '';
+      
+      if (!username) {
+        msgEl.textContent = '请输入用户名';
+        return;
+      }
+      if (!password) {
+        msgEl.textContent = '请输入密码';
+        return;
+      }
       
       try {
         const res = await fetch('/auth', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({  username: 'admin', password })
+          body: JSON.stringify({ username, password })
         });
         
         const data = await res.json();
         if (data.success) {
           localStorage.setItem('authToken', data.token);
-          showGallery();
-          loadImages(1);
+          msgEl.style.color = 'green';
+          msgEl.textContent = '登录成功，正在跳转...';
+          setTimeout(() => {
+            showGallery();
+            loadImages(1);
+          }, 800);
         } else {
           msgEl.textContent = data.error || '登录失败';
         }
@@ -326,8 +332,8 @@
       isSelectionMode = false;
       currentPageImages.clear();
       analysisCache.clear();
-      pHashCache.clear(); // 清空pHash缓存
-      visualDuplicateCache.clear(); // 清空视觉重复缓存
+      pHashCache.clear();
+      visualDuplicateCache.clear();
       updateSelectionUI();
     }
 
@@ -337,7 +343,7 @@
       document.getElementById('gallerySection').style.display = 'block';
     }
 
-    // 验证Token
+    // 验证Token有效性
     async function checkTokenValidity() {
       const token = localStorage.getItem('authToken');
       if (!token) return false;
@@ -352,12 +358,11 @@
       }
     }
 
-    // 加载图片列表
+    // 加载图片（修复：确保currentPageImages正确填充）
     async function loadImages(page = 1) {
       const token = localStorage.getItem('authToken');
       if (!token) return;
       
-      // 清空当前页缓存
       currentPageImages.clear();
       pHashCache.clear();
       visualDuplicateCache.clear();
@@ -378,8 +383,22 @@
         }
         
         const data = await res.json();
-        // 记录当前页图片
-        data.files.forEach(file => currentPageImages.add(file.name));
+        // 关键：校验数据格式并填充currentPageImages
+        if (data.files && Array.isArray(data.files)) {
+          currentPageImages.clear();
+          data.files.forEach(file => {
+            if (file.name && typeof file.name === 'string') {
+              currentPageImages.add(file.name);
+            }
+          });
+          console.log('当前页图片数量:', currentPageImages.size);
+          console.log('当前页图片列表:', Array.from(currentPageImages));
+        } else {
+          console.error('图片数据格式错误:', data);
+          alert('图片数据加载异常');
+          return;
+        }
+        
         renderGallery(data.files);
         renderPagination(data.pagination);
       } catch (e) {
@@ -400,8 +419,7 @@
           <div class="filename">${file.name}</div>
           <button onclick="event.stopPropagation(); deleteImage('${file.name}')">删除</button>
           <button onclick="event.stopPropagation(); downloadImage('${file.name}')">下载</button>
-          <button onclick="event.stopPropagation(); checkDuplicate('${file.name}')">查重</button>
-          <!-- 新增：pHash显示 -->
+          <button onclick="event.stopPropagation(); checkDuplicate('${file.name}')" id="btn-analyze-${file.name}">查重</button>
           <div style="font-size: 9px; color: #666; margin-top: 4px;">
             ${pHashCache.has(file.name) ? `pHash: ${pHashCache.get(file.name).substring(0, 8)}...` : '未计算pHash'}
           </div>
@@ -409,7 +427,6 @@
         </div>
       `).join('');
 
-      // 恢复分析结果
       files.forEach(file => {
         if (analysisCache.has(file.name)) {
           displayAnalysisResult(file.name, analysisCache.get(file.name));
@@ -424,18 +441,15 @@
       const paginationEl = document.getElementById('pagination');
       let html = '';
       
-      // 上一页
       if (pagination.current > 1) {
         html += `<button onclick="loadImages(${pagination.current - 1})">上一页</button>`;
       }
       
-      // 页码
       for (let i = 1; i <= pagination.total; i++) {
         html += `<button ${i === pagination.current ? 'style="background: #4285f4; color: white;"' : ''} 
                   onclick="loadImages(${i})">${i}</button>`;
       }
       
-      // 下一页
       if (pagination.current < pagination.total) {
         html += `<button onclick="loadImages(${pagination.current + 1})">下一页</button>`;
       }
@@ -443,100 +457,87 @@
       paginationEl.innerHTML = html;
     }
 
-    // ===================== 新增核心：pHash计算（后端调用） =====================
-    /**
-     * 计算单张图片pHash（调用后端接口）
-     */
+    // ========== pHash核心功能（修复：调用后端+传递原始URL） ==========
     async function calculatePHash(filename) {
-    if (pHashCache.has(filename)) return pHashCache.get(filename);
-  
-  const token = localStorage.getItem('authToken');
-  if (!token) return null;
-
-  // 拼接原始图片URL（核心：传递给后端）
-  const originalImgUrl = `${R2_PUBLIC_URL}/${encodeURIComponent(filename)}`;
-  
-  try {
-    // 调用后端接口，携带原始图片URL参数
-    const res = await fetch(`/pHash/${encodeURIComponent(filename)}?imgUrl=${encodeURIComponent(originalImgUrl)}`, {
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(`${errData.error} (URL: ${originalImgUrl})`);
-    }
-    
-    const data = await res.json();
-    if (!data.pHash || data.pHash.length !== 64) {
-      throw new Error('后端返回pHash格式错误');
-    }
-    
-    pHashCache.set(filename, data.pHash);
-    return data.pHash;
-  } catch (e) {
-    console.error(`计算${filename} pHash失败:`, e.message);
-    return null;
-  }
-    }
-
-    /**
-     * 计算当前页所有图片pHash
-     */
-    async function calculateAllPHash() {
-     const token = localStorage.getItem('authToken');
-  if (!token) {
-    alert('请先登录');
-    return;
-  }
-
-  const imgList = Array.from(currentPageImages);
-  if (imgList.length === 0) {
-    alert('当前页无图片可计算！\n1. 确认页面已加载出图片\n2. 刷新页面重试');
-    console.warn('currentPageImages为空:', currentPageImages);
-    return;
-  }
-
-  document.getElementById('loading').style.display = 'block';
-  document.getElementById('loading').textContent = '计算pHash中...';
-
-  try {
-    let successCount = 0;
-    for (let i = 0; i < imgList.length; i++) {
-      const filename = imgList[i];
-      document.getElementById('loading').textContent = `计算中(${i+1}/${imgList.length})`;
+      if (pHashCache.has(filename)) return pHashCache.get(filename);
       
-      // 调用改造后的calculatePHash
-      const pHash = await calculatePHash(filename);
-      if (pHash) {
-        successCount++;
-        // 更新页面显示
-        const itemEl = document.getElementById(`item-${filename}`);
-        if (itemEl) {
-          const pHashEl = itemEl.querySelector('div[style="font-size: 9px; color: #666; margin-top: 4px;"]');
-          if (pHashEl) {
-            pHashEl.textContent = `pHash: ${pHash.substring(0, 8)}...`;
+      const token = localStorage.getItem('authToken');
+      if (!token) return null;
+
+      const originalImgUrl = `${R2_PUBLIC_URL}/${encodeURIComponent(filename)}`;
+      
+      try {
+        const res = await fetch(`/pHash/${encodeURIComponent(filename)}?imgUrl=${encodeURIComponent(originalImgUrl)}`, {
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(`${errData.error} (URL: ${originalImgUrl})`);
+        }
+        
+        const data = await res.json();
+        if (!data.pHash || data.pHash.length !== 64) {
+          throw new Error('后端返回pHash格式错误');
+        }
+        
+        pHashCache.set(filename, data.pHash);
+        return data.pHash;
+      } catch (e) {
+        console.error(`计算${filename} pHash失败:`, e.message);
+        return null;
+      }
+    }
+
+    async function calculateAllPHash() {
+      const token = localStorage.getItem('authToken');
+      if (!token) {
+        alert('请先登录');
+        return;
+      }
+
+      const imgList = Array.from(currentPageImages);
+      if (imgList.length === 0) {
+        alert('当前页无图片可计算！\n1. 确认页面已加载出图片\n2. 刷新页面重试');
+        console.warn('currentPageImages为空:', currentPageImages);
+        return;
+      }
+
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('loading').textContent = '计算pHash中...';
+
+      try {
+        let successCount = 0;
+        for (let i = 0; i < imgList.length; i++) {
+          const filename = imgList[i];
+          document.getElementById('loading').textContent = `计算中(${i+1}/${imgList.length})`;
+          
+          const pHash = await calculatePHash(filename);
+          if (pHash) {
+            successCount++;
+            const itemEl = document.getElementById(`item-${filename}`);
+            if (itemEl) {
+              const pHashEl = itemEl.querySelector('div[style="font-size: 9px; color: #666; margin-top: 4px;"]');
+              if (pHashEl) {
+                pHashEl.textContent = `pHash: ${pHash.substring(0, 8)}...`;
+              }
+            }
           }
         }
+
+        document.getElementById('loading').style.display = 'none';
+        alert(`pHash计算完成！\n成功: ${successCount} 张\n失败: ${imgList.length - successCount} 张`);
+      } catch (e) {
+        console.error('批量计算pHash失败:', e);
+        document.getElementById('loading').style.display = 'none';
+        alert(`计算失败：${e.message}`);
       }
     }
 
-    document.getElementById('loading').style.display = 'none';
-    alert(`pHash计算完成！\n成功: ${successCount} 张\n失败: ${imgList.length - successCount} 张`);
-  } catch (e) {
-    console.error('批量计算pHash失败:', e);
-    document.getElementById('loading').style.display = 'none';
-    alert(`计算失败：${e.message}`);
-  }
-    }
-
-    // ===================== 新增核心：汉明距离计算 + 视觉重复标记 =====================
-    /**
-     * 计算两个pHash的汉明距离
-     */
+    // 汉明距离计算
     function calculateHammingDistance(hash1, hash2) {
       if (!hash1 || !hash2 || hash1.length !== 64 || hash2.length !== 64) return 64;
       let distance = 0;
@@ -546,37 +547,32 @@
       return distance;
     }
 
-    /**
-     * 根据汉明距离阈值标记视觉重复图片
-     */
+    // 标记视觉重复图片
     async function markVisualDuplicates() {
-      // 获取设置的阈值
       const threshold = parseInt(document.getElementById('hammingThreshold').value);
       if (isNaN(threshold) || threshold < 0 || threshold > 64) {
-        alert('请输入有效的汉明距离阈值（0-64）');
+        alert('请输入0-64之间的汉明距离阈值');
         return;
       }
 
-      // 确保已计算pHash
       if (pHashCache.size === 0) {
-        if (!confirm('尚未计算pHash，是否先计算？')) return;
+        if (!confirm('尚未计算pHash，是否先批量计算？')) return;
         await calculateAllPHash();
       }
 
       document.getElementById('loading').style.display = 'block';
-      document.getElementById('loading').textContent = '标记视觉重复图片中...';
+      document.getElementById('loading').textContent = '标记视觉重复图片...';
 
       try {
-        // 清空原有标记
-        visualDuplicateCache.clear();
         const imgList = Array.from(currentPageImages).filter(f => pHashCache.has(f));
         if (imgList.length < 2) {
           alert('至少需要2张已计算pHash的图片！');
           return;
         }
 
-        // 两两对比汉明距离
+        visualDuplicateCache.clear();
         const duplicateSet = new Set();
+
         for (let i = 0; i < imgList.length; i++) {
           const f1 = imgList[i];
           const hash1 = pHashCache.get(f1);
@@ -585,7 +581,6 @@
             const hash2 = pHashCache.get(f2);
             const distance = calculateHammingDistance(hash1, hash2);
             
-            // 距离≤阈值，标记为重复
             if (distance <= threshold) {
               duplicateSet.add(f1);
               duplicateSet.add(f2);
@@ -593,34 +588,25 @@
           }
         }
 
-        // 更新缓存和页面标记
         visualDuplicateCache.clear();
         duplicateSet.forEach(f => visualDuplicateCache.add(f));
-        
-        // 刷新页面样式
         imgList.forEach(f => {
           const itemEl = document.getElementById(`item-${f}`);
           if (itemEl) {
-            if (visualDuplicateCache.has(f)) {
-              itemEl.classList.add('visual-duplicate');
-            } else {
-              itemEl.classList.remove('visual-duplicate');
-            }
+            itemEl.classList.toggle('visual-duplicate', visualDuplicateCache.has(f));
           }
         });
 
         document.getElementById('loading').style.display = 'none';
-        alert(`已标记${visualDuplicateCache.size}张视觉重复图片（汉明距离≤${threshold}）！`);
+        alert(`标记完成！共发现${duplicateSet.size}张视觉重复图片（汉明距离≤${threshold}）`);
       } catch (e) {
-        console.error('标记视觉重复失败:', e);
+        console.error('标记重复失败:', e);
         document.getElementById('loading').style.display = 'none';
-        alert('标记失败，请重试');
+        alert(`标记失败：${e.message}`);
       }
     }
 
-    /**
-     * 删除汉明距离标记的重复图片
-     */
+    // 汉明删除
     async function deleteHammingDuplicates() {
       if (visualDuplicateCache.size === 0) {
         alert('暂无标记的视觉重复图片！');
@@ -640,7 +626,6 @@
         let successCount = 0;
         const duplicateList = Array.from(visualDuplicateCache);
         
-        // 逐个删除
         for (const filename of duplicateList) {
           const res = await fetch(`/delete/${encodeURIComponent(filename)}`, {
             method: 'DELETE',
@@ -649,7 +634,6 @@
           
           if (res.ok) {
             successCount++;
-            // 清理缓存
             analysisCache.delete(filename);
             pHashCache.delete(filename);
             visualDuplicateCache.delete(filename);
@@ -658,7 +642,6 @@
           }
         }
 
-        // 重新加载当前页
         await loadImages(getCurrentPage());
         
         document.getElementById('loading').style.display = 'none';
@@ -681,8 +664,7 @@
       return 1;
     }
 
-    // ===================== 原有逻辑（无修改） =====================
-    // 文本相似度计算
+    // ========== 原有文本查重逻辑 ==========
     function calculateTextSimilarity(text1, text2) {
       const stopWords = ['的', '了', '在', '是', '有', '及', '和', '与', '或', '一个', '一名', '一只', '一件'];
       const synonyms = {
@@ -717,7 +699,6 @@
       return union === 0 ? 0 : intersection / union;
     }
 
-    // 全量对比当前页图片
     function compareAllCurrentPageImages() {
       const analyzedImages = [];
       currentPageImages.forEach(filename => {
@@ -760,7 +741,6 @@
       }
     }
 
-    // 单张图片查重
     async function checkDuplicate(filename) {
       const token = localStorage.getItem('authToken');
       if (!token) {
@@ -830,7 +810,6 @@
       }
     }
 
-    // 显示分析结果
     function displayAnalysisResult(filename, result) {
       const el = document.getElementById(`result-${filename}`);
       if (!el) return;
@@ -854,7 +833,6 @@
       el.style.display = 'block';
     }
 
-    // 高亮相似图片
     function highlightSimilar(filename) {
       document.querySelectorAll('.img-item.highlight').forEach(el => {
         el.classList.remove('highlight');
@@ -871,7 +849,6 @@
       }
     }
 
-    // 删除单张图片
     async function deleteImage(filename) {
       if (!confirm(`确定删除 ${filename} 吗？`)) return;
 
@@ -884,8 +861,8 @@
 
         if (res.ok) {
           analysisCache.delete(filename);
-          pHashCache.delete(filename); // 清空pHash缓存
-          visualDuplicateCache.delete(filename); // 清空视觉重复标记
+          pHashCache.delete(filename);
+          visualDuplicateCache.delete(filename);
           currentPageImages.delete(filename);
           selectedImages.delete(filename);
           await loadImages(getCurrentPage());
@@ -899,7 +876,6 @@
       }
     }
 
-    // 下载图片
     async function downloadImage(filename) {
       const token = localStorage.getItem('authToken');
       try {
@@ -921,7 +897,6 @@
       }
     }
 
-    // 批量分析
     async function batchAnalyze() {
       const token = localStorage.getItem('authToken');
       if (!token) {
@@ -956,7 +931,6 @@
       alert(`批量分析完成！成功: ${successCount} 个，失败: ${failCount} 个`);
     }
 
-    // AI标记删除
     async function aiMarkedDelete() {
       const duplicateFiles = [];
       analysisCache.forEach((result, filename) => {
@@ -1008,7 +982,6 @@
       alert(`删除完成！成功: ${successCount} 个，失败: ${failCount} 个`);
     }
 
-    // 切换手动选择模式
     function toggleSelectionMode() {
       isSelectionMode = !isSelectionMode;
       const btn = document.getElementById('toggleSelectBtn');
@@ -1039,7 +1012,6 @@
       updateSelectionUI();
     }
 
-    // 切换图片选择状态
     function toggleImageSelection(filename) {
       if (selectedImages.has(filename)) {
         selectedImages.delete(filename);
@@ -1051,14 +1023,12 @@
       updateSelectionUI();
     }
 
-    // 更新选择信息
     function updateSelectionUI() {
       const count = selectedImages.size;
       document.getElementById('selectionInfo').textContent = `已选择: ${count} 个文件`;
       document.getElementById('manualDeleteBtn').disabled = count === 0;
     }
 
-    // 手动批量删除
     async function manualBatchDelete() {
       const files = Array.from(selectedImages);
       if (files.length === 0) return;
@@ -1080,8 +1050,8 @@
           if (res.ok) {
             successCount++;
             analysisCache.delete(filename);
-            pHashCache.delete(filename); // 清空pHash缓存
-            visualDuplicateCache.delete(filename); // 清空视觉重复标记
+            pHashCache.delete(filename);
+            visualDuplicateCache.delete(filename);
             currentPageImages.delete(filename);
           }
         } catch (e) {
