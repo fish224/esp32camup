@@ -448,64 +448,89 @@
      * 计算单张图片pHash（调用后端接口）
      */
     async function calculatePHash(filename) {
-      if (pHashCache.has(filename)) return pHashCache.get(filename);
-      
-      const token = localStorage.getItem('authToken');
-      try {
-        const res = await fetch(`/pHash/${encodeURIComponent(filename)}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (!res.ok) throw new Error('pHash计算失败');
-        const data = await res.json();
-        pHashCache.set(filename, data.pHash);
-        return data.pHash;
-      } catch (e) {
-        console.error(`计算${filename} pHash失败:`, e);
-        return null;
+    if (pHashCache.has(filename)) return pHashCache.get(filename);
+  
+  const token = localStorage.getItem('authToken');
+  if (!token) return null;
+
+  // 拼接原始图片URL（核心：传递给后端）
+  const originalImgUrl = `${R2_PUBLIC_URL}/${encodeURIComponent(filename)}`;
+  
+  try {
+    // 调用后端接口，携带原始图片URL参数
+    const res = await fetch(`/pHash/${encodeURIComponent(filename)}?imgUrl=${encodeURIComponent(originalImgUrl)}`, {
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
       }
+    });
+    
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(`${errData.error} (URL: ${originalImgUrl})`);
+    }
+    
+    const data = await res.json();
+    if (!data.pHash || data.pHash.length !== 64) {
+      throw new Error('后端返回pHash格式错误');
+    }
+    
+    pHashCache.set(filename, data.pHash);
+    return data.pHash;
+  } catch (e) {
+    console.error(`计算${filename} pHash失败:`, e.message);
+    return null;
+  }
     }
 
     /**
      * 计算当前页所有图片pHash
      */
     async function calculateAllPHash() {
-      const token = localStorage.getItem('authToken');
-      if (!token) {
-        alert('请先登录');
-        return;
-      }
+     const token = localStorage.getItem('authToken');
+  if (!token) {
+    alert('请先登录');
+    return;
+  }
 
-      const imgList = Array.from(currentPageImages);
-      if (imgList.length === 0) return;
+  const imgList = Array.from(currentPageImages);
+  if (imgList.length === 0) {
+    alert('当前页无图片可计算！\n1. 确认页面已加载出图片\n2. 刷新页面重试');
+    console.warn('currentPageImages为空:', currentPageImages);
+    return;
+  }
 
-      document.getElementById('loading').style.display = 'block';
-      document.getElementById('loading').textContent = '计算pHash中...';
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('loading').textContent = '计算pHash中...';
 
-      try {
-        // 批量计算pHash（逐个调用，避免并发过高）
-        for (let i = 0; i < imgList.length; i++) {
-          const filename = imgList[i];
-          await calculatePHash(filename);
-          // 更新页面显示
-          const itemEl = document.getElementById(`item-${filename}`);
-          if (itemEl) {
-            const pHashEl = itemEl.querySelector('div[style="font-size: 9px; color: #666; margin-top: 4px;"]');
-            if (pHashEl && pHashCache.has(filename)) {
-              pHashEl.textContent = `pHash: ${pHashCache.get(filename).substring(0, 8)}...`;
-            }
+  try {
+    let successCount = 0;
+    for (let i = 0; i < imgList.length; i++) {
+      const filename = imgList[i];
+      document.getElementById('loading').textContent = `计算中(${i+1}/${imgList.length})`;
+      
+      // 调用改造后的calculatePHash
+      const pHash = await calculatePHash(filename);
+      if (pHash) {
+        successCount++;
+        // 更新页面显示
+        const itemEl = document.getElementById(`item-${filename}`);
+        if (itemEl) {
+          const pHashEl = itemEl.querySelector('div[style="font-size: 9px; color: #666; margin-top: 4px;"]');
+          if (pHashEl) {
+            pHashEl.textContent = `pHash: ${pHash.substring(0, 8)}...`;
           }
-          // 更新进度
-          document.getElementById('loading').textContent = `计算pHash中(${i+1}/${imgList.length})`;
         }
-
-        alert(`成功计算${pHashCache.size}张图片的pHash！`);
-      } catch (e) {
-        console.error('批量计算pHash失败:', e);
-        alert('pHash计算失败，请重试');
-      } finally {
-        document.getElementById('loading').style.display = 'none';
       }
+    }
+
+    document.getElementById('loading').style.display = 'none';
+    alert(`pHash计算完成！\n成功: ${successCount} 张\n失败: ${imgList.length - successCount} 张`);
+  } catch (e) {
+    console.error('批量计算pHash失败:', e);
+    document.getElementById('loading').style.display = 'none';
+    alert(`计算失败：${e.message}`);
+  }
     }
 
     // ===================== 新增核心：汉明距离计算 + 视觉重复标记 =====================
