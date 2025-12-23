@@ -204,10 +204,14 @@
 
   // 会话级缓存
   const analysisCache = new Map();
+  // 当前页图片列表（用于互相对比）
+  const currentPageImages = new Set();
   // 手动选择的图片集合
   let selectedImages = new Set();
   // 选择模式状态
   let isSelectionMode = false;
+  // 相似度阈值（降低到0.7）
+  const SIMILARITY_THRESHOLD = 0.7;
 
   // 页面加载事件
   window.onload = async () => {
@@ -271,6 +275,7 @@
     // 重置选择状态
     selectedImages.clear();
     isSelectionMode = false;
+    currentPageImages.clear();
     updateSelectionUI();
   }
 
@@ -284,6 +289,9 @@
   async function loadImages(page = 1) {
     const token = localStorage.getItem('authToken');
     if (!token) return;
+
+    // 清空当前页图片记录
+    currentPageImages.clear();
 
     try {
       const url = new URL('/browse', location.origin);
@@ -306,6 +314,8 @@
       }
 
       const data = await res.json();
+      // 记录当前页图片
+      data.files.forEach(file => currentPageImages.add(file.name));
       renderGallery(data.files);
       renderPagination(data.pagination);
 
@@ -371,6 +381,100 @@
     el.appendChild(next);
   }
 
+  // 优化后的文本相似度算法（支持同义词、忽略虚词）
+  function calculateTextSimilarity(text1, text2) {
+    // 预处理：转小写、去标点、替换同义词、移除虚词
+    const stopWords = ['的', '了', '在', '是', '有', '及', '和', '与', '或', '一个', '一名', '一只', '一件'];
+    const synonyms = {
+      '及': '和',
+      '与': '和',
+      '一名': '一个',
+      '一只': '一个',
+      '站立': '站着',
+      '坐着': '坐立'
+    };
+
+    // 文本预处理函数
+    const preprocess = (text) => {
+      // 转小写
+      let processed = text.toLowerCase();
+      // 替换同义词
+      Object.keys(synonyms).forEach(key => {
+        processed = processed.replace(new RegExp(key, 'g'), synonyms[key]);
+      });
+      // 移除标点
+      processed = processed.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '');
+      // 移除虚词
+      stopWords.forEach(word => {
+        processed = processed.replace(new RegExp(word, 'g'), '');
+      });
+      // 分词（简单按字分词，也可改用jieba等分词库）
+      return processed.split('').filter(char => char.trim() !== '');
+    };
+
+    const words1 = preprocess(text1);
+    const words2 = preprocess(text2);
+
+    // 计算交集和并集
+    const set1 = new Set(words1);
+    const set2 = new Set(words2);
+    const intersection = [...set1].filter(word => set2.has(word)).length;
+    const union = new Set([...words1, ...words2]).size;
+
+    // 无重叠词则相似度为0
+    if (union === 0) return 0;
+    // 计算杰卡德相似度
+    return intersection / union;
+  }
+
+  // 对比当前页所有图片的描述，更新相似结果
+  function compareAllCurrentPageImages() {
+    // 提取当前页已分析的图片
+    const analyzedImages = [];
+    currentPageImages.forEach(filename => {
+      if (analysisCache.has(filename)) {
+        analyzedImages.push({
+          filename,
+          description: analysisCache.get(filename).description
+        });
+      }
+    });
+
+    // 两两对比
+    for (let i = 0; i < analyzedImages.length; i++) {
+      const img1 = analyzedImages[i];
+      const similarImages = [];
+
+      for (let j = 0; j < analyzedImages.length; j++) {
+        if (i === j) continue; // 跳过自己
+        
+        const img2 = analyzedImages[j];
+        const similarity = calculateTextSimilarity(img1.description, img2.description);
+        
+        // 低于阈值则跳过
+        if (similarity < SIMILARITY_THRESHOLD) continue;
+
+        similarImages.push({
+          filename: img2.filename,
+          similarity: similarity.toFixed(2)
+        });
+      }
+
+      // 更新缓存中的相似结果
+      if (similarImages.length > 0) {
+        const originalResult = analysisCache.get(img1.filename);
+        const updatedResult = {
+          ...originalResult,
+          result: 'semantic_similar',
+          similarImages: similarImages
+        };
+        analysisCache.set(img1.filename, updatedResult);
+        // 重新渲染结果
+        displayAnalysisResult(img1.filename, updatedResult);
+      }
+    }
+  }
+
   // 查重功能（增加重试机制）
   async function checkDuplicate(filename) {
     const token = localStorage.getItem('authToken');
@@ -427,6 +531,10 @@
       const result = await res.json();
       analysisCache.set(filename, result);
       displayAnalysisResult(filename, result);
+
+      // 单张分析完成后，触发当前页全量对比
+      compareAllCurrentPageImages();
+
     } catch (e) {
       // 显示更详细的错误信息
       const errorEl = document.getElementById(`result-${filename}`);
@@ -454,7 +562,7 @@
       className = 'semantic';
       // 相似图片添加点击跳转功能
       const list = result.similarImages.map(i => 
-        `<span class="similar-link" onclick="highlightSimilar('${i.filename}')">${i.filename} (${i.similarity})</span>`
+        `<span class="similar-link" onclick="highlightSimilar('${i.filename}')">${i.filename} (相似度: ${i.similarity})</span>`
       ).join('<br>');
       html = `🔍 语义相似<br>描述: ${result.description}<br>相似图:<br>${list}`;
     } else {
@@ -504,6 +612,7 @@
         // 删除成功后清除缓存和选择状态
         analysisCache.delete(filename);
         selectedImages.delete(filename);
+        currentPageImages.delete(filename);
         updateSelectionUI();
         alert('删除成功');
         loadImages();
@@ -627,8 +736,11 @@
       }
     }
 
+    // 批量分析完成后，强制全量对比当前页所有图片
+    compareAllCurrentPageImages();
+
     document.getElementById('loading').style.display = 'none';
-    alert(`批量分析完成！成功: ${successCount} 个，失败: ${failCount} 个`);
+    alert(`批量分析完成！成功: ${successCount} 个，失败: ${failCount} 个\n已完成当前页所有图片互相对比`);
   }
 
   // AI标记删除（删除高重复图片）
@@ -673,6 +785,7 @@
         if (res.ok) {
           analysisCache.delete(filename);
           selectedImages.delete(filename);
+          currentPageImages.delete(filename);
           successCount++;
         } else {
           failCount++;
@@ -785,6 +898,7 @@
 
         if (res.ok) {
           analysisCache.delete(filename);
+          currentPageImages.delete(filename);
           successCount++;
         } else {
           failCount++;
