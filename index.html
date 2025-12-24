@@ -460,24 +460,31 @@
 
     // 渲染分页
     function renderPagination(pagination) {
-      const paginationEl = document.getElementById('pagination');
-      let html = '';
-      
-      if (pagination.current > 1) {
-        html += `<button onclick="loadImages(${pagination.current - 1})">上一页</button>`;
-      }
-      
-      for (let i = 1; i <= pagination.total; i++) {
-        html += `<button ${i === pagination.current ? 'style="background: #4285f4; color: white;"' : ''} 
-                  onclick="loadImages(${i})">${i}</button>`;
-      }
-      
-      if (pagination.current < pagination.total) {
-        html += `<button onclick="loadImages(${pagination.current + 1})">下一页</button>`;
-      }
-      
-      paginationEl.innerHTML = html;
+    const el = document.getElementById('pagination');
+    el.innerHTML = '';
+
+    if (pagination.totalPages <= 1) return;
+
+    const prev = document.createElement('button');
+    prev.textContent = '上一页';
+    prev.disabled = !pagination.hasPrev;
+    prev.onclick = () => loadImages(pagination.currentPage - 1);
+    el.appendChild(prev);
+
+    for (let i = 1; i <= pagination.totalPages; i++) {
+      const btn = document.createElement('button');
+      btn.textContent = i;
+      if (i === pagination.currentPage) btn.style.backgroundColor = '#e0e0e0';
+      btn.onclick = () => loadImages(i);
+      el.appendChild(btn);
     }
+
+    const next = document.createElement('button');
+    next.textContent = '下一页';
+    next.disabled = !pagination.hasNext;
+    next.onclick = () => loadImages(pagination.currentPage + 1);
+    el.appendChild(next);
+  }
 
     // ========== pHash核心功能 ==========
    // 纯前端pHash计算（无后端依赖）
