@@ -218,7 +218,7 @@
   </style>
 </head>
 <body>
-  <!-- 登录区域（修复：新增用户名输入框） -->
+  <!-- 登录区域 -->
   <div id="loginSection">
     <h2>管理员登录</h2>
     <input type="text" id="username" placeholder="请输入用户名（默认admin）" value="admin" />
@@ -282,7 +282,7 @@
       }
     };
 
-    // 登录函数（修复：传递用户名+密码）
+    // 登录函数
     async function login() {
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value.trim();
@@ -358,7 +358,7 @@
       }
     }
 
-    // 加载图片（修复：确保currentPageImages正确填充）
+    // 加载图片
     async function loadImages(page = 1) {
       const token = localStorage.getItem('authToken');
       if (!token) return;
@@ -383,7 +383,7 @@
         }
         
         const data = await res.json();
-        // 关键：校验数据格式并填充currentPageImages
+        // 校验数据格式并填充currentPageImages
         if (data.files && Array.isArray(data.files)) {
           currentPageImages.clear();
           data.files.forEach(file => {
@@ -457,7 +457,7 @@
       paginationEl.innerHTML = html;
     }
 
-    // ========== pHash核心功能（修复：调用后端+传递原始URL） ==========
+    // ========== pHash核心功能 ==========
     async function calculatePHash(filename) {
       if (pHashCache.has(filename)) return pHashCache.get(filename);
       
@@ -961,109 +961,310 @@
             headers: { 'Authorization': `Bearer ${token}` }
           });
 
-          if (res.ok) {
+ if (res.ok) {
+        // 删除成功后清除缓存和选择状态
+        analysisCache.delete(filename);
+        selectedImages.delete(filename);
+        updateSelectionUI();
+        alert('删除成功');
+        loadImages();
+      } else {
+        const err = await res.json().catch(() => ({ error: '操作失败' }));
+        alert('删除失败：' + err.error);
+      }
+    } catch (e) {
+      console.error('Delete error:', e);
+      alert('删除失败：网络错误');
+    }
+  }
+
+  // 下载功能
+  function downloadImage(filename) {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      alert('请先登录');
+      return;
+    }
+    // 使用后端下载接口确保权限验证
+    const url = `/download/${encodeURIComponent(filename)}`;
+    fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).then(res => {
+      if (!res.ok) throw new Error('下载失败');
+      return res.blob();
+    }).then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }).catch(err => {
+      alert('下载失败：' + err.message);
+    });
+  }
+  
+  // 验证Token有效性
+  async function checkTokenValidity() {
+    const token = localStorage.getItem('authToken');
+    if (!token) return false;
+    
+    try {
+      // 调用轻量的验证接口
+      const res = await fetch('/browse?page=1&limit=1', {
+        headers: { 'Authorization': `Bearer ${token}` },
+        timeout: 5000
+      });
+      
+      if (res.status === 401) {
+        localStorage.removeItem('authToken');
+        return false;
+      }
+      return res.ok;
+    } catch (e) {
+      console.error('Token验证失败:', e);
+      return false;
+    }
+  }
+
+  // 批量分析当前页所有图片
+  async function batchAnalyze() {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      alert('请先登录');
+      return;
+    }
+
+    const imgItems = document.querySelectorAll('.img-item');
+    if (imgItems.length === 0) {
+      alert('当前页面没有图片');
+      return;
+    }
+
+    document.getElementById('loading').style.display = 'block';
+    
+    // 逐个分析（避免并发过高）
+    let successCount = 0;
+    let failCount = 0;
+    for (let i = 0; i < imgItems.length; i++) {
+      const item = imgItems[i];
+      const filename = item.querySelector('.filename').textContent;
+      const btn = document.getElementById(`btn-analyze-${filename}`);
+      
+      // 更新进度
+      document.getElementById('loading').textContent = `正在分析 ${i+1}/${imgItems.length}`;
+      
+      if (!analysisCache.has(filename) && btn && !btn.disabled) {
+        try {
+          // 增加重试机制
+          let retryCount = 0;
+          let res;
+          while (retryCount < 2) {
+            try {
+              res = await fetch(`/analyze/${encodeURIComponent(filename)}`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 10000
+              });
+              if (res.ok) break;
+            } catch (e) {
+              retryCount++;
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+          }
+          
+          if (res && res.ok) {
+            const result = await res.json();
+            analysisCache.set(filename, result);
+            displayAnalysisResult(filename, result);
             successCount++;
-            analysisCache.delete(filename);
-            pHashCache.delete(filename);
-            visualDuplicateCache.delete(filename);
-            currentPageImages.delete(filename);
-            selectedImages.delete(filename);
           } else {
             failCount++;
           }
         } catch (e) {
+          console.error(`批量分析${filename}失败:`, e);
           failCount++;
-          console.error(`删除${filename}失败:`, e);
         }
-      }
-
-      document.getElementById('loading').style.display = 'none';
-      await loadImages(getCurrentPage());
-      alert(`删除完成！成功: ${successCount} 个，失败: ${failCount} 个`);
-    }
-
-    function toggleSelectionMode() {
-      isSelectionMode = !isSelectionMode;
-      const btn = document.getElementById('toggleSelectBtn');
-      const imgItems = document.querySelectorAll('.img-item');
-
-      if (isSelectionMode) {
-        btn.textContent = '关闭手动选择';
-        btn.style.backgroundColor = '#ffebee';
-        btn.style.color = '#d32f2f';
-        imgItems.forEach(item => {
-          item.style.cursor = 'pointer';
-          item.onclick = function() {
-            const filename = this.id.replace('item-', '');
-            toggleImageSelection(filename);
-          };
-        });
       } else {
-        btn.textContent = '开启手动选择';
-        btn.style.backgroundColor = '';
-        btn.style.color = '';
-        imgItems.forEach(item => {
-          item.style.cursor = '';
-          item.onclick = null;
+        successCount++; // 已分析过的算成功
+      }
+    }
+
+    document.getElementById('loading').style.display = 'none';
+    alert(`批量分析完成！成功: ${successCount} 个，失败: ${failCount} 个`);
+  }
+
+  // AI标记删除（删除高重复图片）
+  async function aiMarkedDelete() {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      alert('请先登录');
+      return;
+    }
+
+    // 收集所有标记为相似的图片
+    const duplicateFiles = [];
+    analysisCache.forEach((result, filename) => {
+      if (result.result === 'semantic_similar') {
+        duplicateFiles.push(filename);
+      }
+    });
+
+    if (duplicateFiles.length === 0) {
+      alert('当前页面没有检测到高重复图片');
+      return;
+    }
+
+    // 确认删除
+    const confirmMsg = `检测到 ${duplicateFiles.length} 个高重复图片：\n${duplicateFiles.join('\n')}\n\n确定要删除这些图片吗？`;
+    if (!confirm(confirmMsg)) return;
+
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('loading').textContent = '正在删除重复图片...';
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // 逐个删除
+    for (const filename of duplicateFiles) {
+      try {
+        const res = await fetch(`/delete/${encodeURIComponent(filename)}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
         });
-        selectedImages.clear();
-      }
 
-      updateSelectionUI();
-    }
-
-    function toggleImageSelection(filename) {
-      if (selectedImages.has(filename)) {
-        selectedImages.delete(filename);
-        document.getElementById(`item-${filename}`).classList.remove('selected');
-      } else {
-        selectedImages.add(filename);
-        document.getElementById(`item-${filename}`).classList.add('selected');
-      }
-      updateSelectionUI();
-    }
-
-    function updateSelectionUI() {
-      const count = selectedImages.size;
-      document.getElementById('selectionInfo').textContent = `已选择: ${count} 个文件`;
-      document.getElementById('manualDeleteBtn').disabled = count === 0;
-    }
-
-    async function manualBatchDelete() {
-      const files = Array.from(selectedImages);
-      if (files.length === 0) return;
-
-      if (!confirm(`确定删除选中的 ${files.length} 张图片吗？`)) return;
-
-      const token = localStorage.getItem('authToken');
-      document.getElementById('loading').style.display = 'block';
-      document.getElementById('loading').textContent = '删除中...';
-
-      let successCount = 0;
-      for (const filename of files) {
-        try {
-          const res = await fetch(`/delete/${encodeURIComponent(filename)}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-
-          if (res.ok) {
-            successCount++;
-            analysisCache.delete(filename);
-            pHashCache.delete(filename);
-            visualDuplicateCache.delete(filename);
-            currentPageImages.delete(filename);
-          }
-        } catch (e) {
-          console.error(`删除${filename}失败:`, e);
+        if (res.ok) {
+          analysisCache.delete(filename);
+          selectedImages.delete(filename);
+          successCount++;
+        } else {
+          failCount++;
         }
+      } catch (e) {
+        console.error(`删除${filename}失败:`, e);
+        failCount++;
       }
-
-      selectedImages.clear();
-      document.getElementById('loading').style.display = 'none';
-      await loadImages(getCurrentPage());
-      alert(`删除完成！成功: ${successCount} 个，失败: ${files.length - successCount} 个`);
     }
-  </script>
+
+    document.getElementById('loading').style.display = 'none';
+    updateSelectionUI();
+    loadImages();
+    alert(`删除完成！成功: ${successCount} 个，失败: ${failCount} 个`);
+  }
+
+  // 切换手动选择模式
+  function toggleSelectionMode() {
+    isSelectionMode = !isSelectionMode;
+    const btn = document.getElementById('toggleSelectBtn');
+    const galleryItems = document.querySelectorAll('.img-item');
+
+    if (isSelectionMode) {
+      btn.textContent = '关闭手动选择';
+      btn.style.backgroundColor = '#ffebee';
+      btn.style.color = '#d32f2f';
+      // 给所有图片添加点击选择事件
+      galleryItems.forEach(item => {
+        item.style.cursor = 'pointer';
+        item.onclick = function() {
+          const filename = this.querySelector('.filename').textContent;
+          toggleImageSelection(filename);
+        };
+      });
+    } else {
+      btn.textContent = '开启手动选择';
+      btn.style.backgroundColor = '';
+      btn.style.color = '';
+      // 移除点击选择事件
+      galleryItems.forEach(item => {
+        item.style.cursor = '';
+        item.onclick = null;
+      });
+    }
+
+    // 清空选择
+    selectedImages.clear();
+    updateSelectionUI();
+  }
+
+  // 切换图片选择状态
+  function toggleImageSelection(filename) {
+    if (selectedImages.has(filename)) {
+      selectedImages.delete(filename);
+      document.getElementById(`item-${filename}`).classList.remove('selected');
+    } else {
+      selectedImages.add(filename);
+      document.getElementById(`item-${filename}`).classList.add('selected');
+    }
+    updateSelectionUI();
+  }
+
+  // 更新选择信息UI
+  function updateSelectionUI() {
+    const count = selectedImages.size;
+    const infoEl = document.getElementById('selectionInfo');
+    const deleteBtn = document.getElementById('manualDeleteBtn');
+    
+    infoEl.textContent = `已选择: ${count} 个文件`;
+    deleteBtn.disabled = count === 0;
+
+    // 更新选中样式
+    selectedImages.forEach(filename => {
+      const el = document.getElementById(`item-${filename}`);
+      if (el) el.classList.add('selected');
+    });
+  }
+
+  // 手动批量删除
+  async function manualBatchDelete() {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      alert('请先登录');
+      return;
+    }
+
+    const files = Array.from(selectedImages);
+    if (files.length === 0) {
+      alert('请先选择要删除的图片');
+      return;
+    }
+
+    // 确认删除弹窗
+    const confirmMsg = `你选择了 ${files.length} 个文件：\n${files.join('\n')}\n\n确定要永久删除这些文件吗？`;
+    if (!confirm(confirmMsg)) return;
+
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('loading').textContent = `正在删除 ${files.length} 个文件...`;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // 逐个删除
+    for (const filename of files) {
+      try {
+        const res = await fetch(`/delete/${encodeURIComponent(filename)}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (res.ok) {
+          analysisCache.delete(filename);
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch (e) {
+        console.error(`删除${filename}失败:`, e);
+        failCount++;
+      }
+    }
+
+    // 重置选择状态
+    selectedImages.clear();
+    
+    document.getElementById('loading').style.display = 'none';
+    updateSelectionUI();
+    loadImages();
+    alert(`批量删除完成！成功: ${successCount} 个，失败: ${failCount} 个`);
+  }
+</script>
+
 </body>
 </html>
