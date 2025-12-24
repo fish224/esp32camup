@@ -480,84 +480,94 @@
     }
 
     // ========== pHash核心功能 ==========
-    async function calculatePHash(filename) {
-      if (pHashCache.has(filename)) return pHashCache.get(filename);
-      
-      const token = localStorage.getItem('authToken');
-      if (!token) return null;
+   // 纯前端pHash计算（无后端依赖）
+async function calculatePHash(filename) {
+  if (pHashCache.has(filename)) return pHashCache.get(filename);
 
-      const originalImgUrl = `${R2_PUBLIC_URL}/${encodeURIComponent(filename)}`;
+  try {
+    // 1. 处理跨域图片：通过代理加载（避免Canvas污染）
+    const imgUrl = `${R2_PUBLIC_URL}/${encodeURIComponent(filename)}`;
+    const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(imgUrl)}&output=png`;
+
+    // 2. 加载图片
+    const img = new Image();
+    img.crossOrigin = 'anonymous'; // 允许跨域
+    img.src = proxyUrl;
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('图片加载失败'));
+    });
+
+    // 3. Canvas缩放到8x8（pHash标准尺寸）
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 8;
+    canvas.height = 8;
+    ctx.drawImage(img, 0, 0, 8, 8);
+
+    // 4. 提取像素并转灰度图
+    const pixelData = ctx.getImageData(0, 0, 8, 8).data;
+    const grayscale = [];
+    for (let i = 0; i < pixelData.length; i += 4) {
+      const gray = 0.299 * pixelData[i] + 0.587 * pixelData[i+1] + 0.114 * pixelData[i+2];
+      grayscale.push(gray);
+    }
+
+    // 5. 计算灰度平均值
+    const avgGray = grayscale.reduce((a, b) => a + b) / grayscale.length;
+
+    // 6. 生成64位pHash
+    let pHash = '';
+    grayscale.forEach(gray => {
+      pHash += gray >= avgGray ? '1' : '0';
+    });
+
+    pHashCache.set(filename, pHash);
+    return pHash;
+  } catch (e) {
+    console.error(`计算${filename} pHash失败:`, e.message);
+    return null;
+  }
+}
+
+// 批量计算当前页pHash
+async function calculateAllPHash() {
+  const imgList = Array.from(currentPageImages);
+  if (imgList.length === 0) {
+    alert('当前页无图片可计算！');
+    return;
+  }
+
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('loading').textContent = '计算pHash中...';
+
+  try {
+    let successCount = 0;
+    for (let i = 0; i < imgList.length; i++) {
+      const filename = imgList[i];
+      document.getElementById('loading').textContent = `计算中(${i+1}/${imgList.length})`;
       
-      try {
-        const res = await fetch(`/pHash/${encodeURIComponent(filename)}?imgUrl=${encodeURIComponent(originalImgUrl)}`, {
-          headers: { 
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+      const pHash = await calculatePHash(filename);
+      if (pHash) {
+        successCount++;
+        const itemEl = document.getElementById(`item-${filename}`);
+        if (itemEl) {
+          const pHashEl = itemEl.querySelector('div[style="font-size: 9px; color: #666; margin-top: 4px;"]');
+          if (pHashEl) {
+            pHashEl.textContent = `pHash: ${pHash.substring(0, 8)}...`;
           }
-        });
-        
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({ error: res.statusText }));
-          throw new Error(`${errData.error} (URL: ${originalImgUrl})`);
         }
-        
-        const data = await res.json();
-        if (!data.pHash || data.pHash.length !== 64) {
-          throw new Error('后端返回pHash格式错误');
-        }
-        
-        pHashCache.set(filename, data.pHash);
-        return data.pHash;
-      } catch (e) {
-        console.error(`计算${filename} pHash失败:`, e.message);
-        return null;
       }
     }
 
-    async function calculateAllPHash() {
-      const token = localStorage.getItem('authToken');
-      if (!token) {
-        alert('请先登录');
-        return;
-      }
-
-      const imgList = Array.from(currentPageImages);
-      if (imgList.length === 0) {
-        alert('当前页无图片可计算！\n1. 确认页面已加载出图片\n2. 刷新页面重试');
-        console.warn('currentPageImages为空:', currentPageImages);
-        return;
-      }
-
-      document.getElementById('loading').style.display = 'block';
-      document.getElementById('loading').textContent = '计算pHash中...';
-
-      try {
-        let successCount = 0;
-        for (let i = 0; i < imgList.length; i++) {
-          const filename = imgList[i];
-          document.getElementById('loading').textContent = `计算中(${i+1}/${imgList.length})`;
-          
-          const pHash = await calculatePHash(filename);
-          if (pHash) {
-            successCount++;
-            const itemEl = document.getElementById(`item-${filename}`);
-            if (itemEl) {
-              const pHashEl = itemEl.querySelector('div[style="font-size: 9px; color: #666; margin-top: 4px;"]');
-              if (pHashEl) {
-                pHashEl.textContent = `pHash: ${pHash.substring(0, 8)}...`;
-              }
-            }
-          }
-        }
-
-        document.getElementById('loading').style.display = 'none';
-        alert(`pHash计算完成！\n成功: ${successCount} 张\n失败: ${imgList.length - successCount} 张`);
-      } catch (e) {
-        console.error('批量计算pHash失败:', e);
-        document.getElementById('loading').style.display = 'none';
-        alert(`计算失败：${e.message}`);
-      }
-    }
+    document.getElementById('loading').style.display = 'none';
+    alert(`pHash计算完成！\n成功: ${successCount} 张\n失败: ${imgList.length - successCount} 张`);
+  } catch (e) {
+    console.error('批量计算pHash失败:', e);
+    document.getElementById('loading').style.display = 'none';
+    alert(`计算失败：${e.message}`);
+  }
+}
 
     // 汉明距离计算
     function calculateHammingDistance(hash1, hash2) {
