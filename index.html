@@ -243,10 +243,13 @@
   }
 
   .modal-content {
-    margin: auto;
-    display: block;
-    max-width: 90%;
-    max-height: 80%;
+    margin: 0 auto;
+  display: block;
+  max-width: 100%; /* 改为100%确保不超出容器 */
+  max-height: 90vh; /* 使用视口高度的90%作为最大限制 */
+  width: auto; /* 保持宽高比 */
+  height: auto; /* 保持宽高比 */
+  object-fit: contain; /* 确保图片完整显示 */
   }
 
   .close {
