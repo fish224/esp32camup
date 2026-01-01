@@ -146,8 +146,8 @@
       margin: 100px auto;
       padding: 20px;
       background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+	border-radius: 8px;
+	box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
 
     #loginSection input {
@@ -244,12 +244,13 @@
 
   .modal-content {
     margin: 0 auto;
-  display: block;
-  max-width: 100%; /* 改为100%确保不超出容器 */
-  max-height: 90vh; /* 使用视口高度的90%作为最大限制 */
-  width: auto; /* 保持宽高比 */
-  height: auto; /* 保持宽高比 */
-  object-fit: contain; /* 确保图片完整显示 */
+    display: block;
+    max-width: 90%;
+    max-height: 90vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    transition: transform 0.2s ease;
   }
 
   .close {
@@ -262,13 +263,41 @@
     cursor: pointer;
   }
 
-  .gallery img {
+  .close:hover {
+      color: #ff4444;
+  }
+
+  #gallery img {
     transition: transform 0.3s ease;
     cursor: zoom-in;
   }
-
-
-
+  
+  /* 模态框旋转按钮样式 重点新增 */
+  .modal-rotation-controls {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1001;
+      display: flex;
+      gap: 15px;
+  }
+  
+  .modal-rotation-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+      font-size: 18px;
+      cursor: pointer;
+      backdrop-filter: blur(5px);
+  }
+  
+  .modal-rotation-btn:hover {
+      background: rgba(255,255,255,0.4);
+  }
     
   </style>
 </head>
@@ -314,8 +343,14 @@
 <!-- 原图查看模态框 -->
   <div id="imageModal" class="modal">
     <span class="close">&times;</span>
-    <img class="modal-content" id="modalImage">
-  </div>
+    <div class="modal-rotation-controls">
+      <button class="modal-rotation-btn" id="modalRotateLeft">↺</button>
+      <button class="modal-rotation-btn" id="modalRotateRight">↻</button>
+    </div>
+    <div class="modal-image-container">
+      <img class="modal-content" id="modalImage" />
+    </div>
+</div>
   
   <!-- 加载提示 -->
   <div id="loading">处理中，请稍候...</div>
@@ -330,6 +365,9 @@
     const SIMILARITY_THRESHOLD = 0.7;
     const pHashCache = new Map();
     const visualDuplicateCache = new Set();
+    let currentPage = 1; // 修复：新增当前页码全局变量，解决页码获取失效
+    let thumbRotationAngle = 0; // 缩略图旋转角度
+    let modalRotationAngle = 0; // 模态框大图独立旋转角度 重点新增
 
     // 页面初始化
     window.onload = async () => {
@@ -345,7 +383,64 @@
       } else {
         document.getElementById('loginSection').style.display = 'block';
       }
+      initRotateEvent(); // 初始化所有旋转事件
     };
+
+    // 初始化旋转事件 重点新增：缩略图旋转+模态框大图旋转
+    function initRotateEvent(){
+        // 缩略图旋转按钮
+        document.getElementById('rotateLeft').addEventListener('click', () => {
+            thumbRotationAngle = (thumbRotationAngle - 90) % 360;
+            document.querySelectorAll('#gallery img').forEach(img => {
+                img.style.transform = `scale(1.0) rotate(${thumbRotationAngle}deg)`;
+            });
+        });
+        document.getElementById('rotateRight').addEventListener('click', () => {
+            thumbRotationAngle = (thumbRotationAngle + 90) % 360;
+            document.querySelectorAll('#gallery img').forEach(img => {
+                img.style.transform = `scale(1.0) rotate(${thumbRotationAngle}deg)`;
+            });
+        });
+
+        // 模态框大图旋转按钮 - 核心新增
+        const modalImg = document.getElementById('modalImage');
+        document.getElementById('modalRotateLeft').onclick = () => {
+            modalRotationAngle = (modalRotationAngle - 90) % 360;
+            modalImg.style.transform = `rotate(${modalRotationAngle}deg)`;
+        };
+        document.getElementById('modalRotateRight').onclick = () => {
+            modalRotationAngle = (modalRotationAngle + 90) % 360;
+            modalImg.style.transform = `rotate(${modalRotationAngle}deg)`;
+        };
+
+        // 模态框关闭按钮
+        document.querySelector('.close').addEventListener('click', () => {
+            document.getElementById('imageModal').style.display = 'none';
+            modalRotationAngle = 0; // 关闭后重置大图旋转角度
+        });
+
+        // 点击模态框空白处关闭
+        window.addEventListener('click', (e) => {
+            const modal = document.getElementById('imageModal');
+            if (e.target === modal) {
+                modal.style.display = 'none';
+                modalRotationAngle = 0;
+            }
+        });
+
+        // 绑定图库图片点击查看原图 - 修复原有失效问题
+        document.getElementById('gallery').addEventListener('click', function(e) {
+            const imgEl = e.target;
+            if(imgEl.tagName === 'IMG' && !isSelectionMode){
+                const imgSrc = imgEl.src;
+                document.getElementById('modalImage').src = imgSrc;
+                document.getElementById('modalImage').style.transform = 'rotate(0deg)';
+                modalRotationAngle = 0;
+                document.getElementById('imageModal').style.display = 'block';
+                e.stopPropagation();
+            }
+        });
+    }
 
     // 登录函数
     async function login() {
@@ -435,6 +530,7 @@
       const token = localStorage.getItem('authToken');
       if (!token) return;
       
+      currentPage = page; // 修复：赋值当前页码
       currentPageImages.clear();
       pHashCache.clear();
       visualDuplicateCache.clear();
@@ -455,7 +551,6 @@
         }
         
         const data = await res.json();
-        // 校验数据格式并填充currentPageImages
         if (data.files && Array.isArray(data.files)) {
           currentPageImages.clear();
           data.files.forEach(file => {
@@ -463,8 +558,6 @@
               currentPageImages.add(file.name);
             }
           });
-          console.log('当前页图片数量:', currentPageImages.size);
-          console.log('当前页图片列表:', Array.from(currentPageImages));
         } else {
           console.error('图片数据格式错误:', data);
           alert('图片数据加载异常');
@@ -486,7 +579,8 @@
         <div class="img-item ${selectedImages.has(file.name) ? 'selected' : ''} ${visualDuplicateCache.has(file.name) ? 'visual-duplicate' : ''}" 
              id="item-${file.name}">
           <img src="${R2_PUBLIC_URL}/${encodeURIComponent(file.name)}" 
-               onerror="this.src='https://via.placeholder.com/160x120?text=加载失败'" />
+               onerror="this.src='https://via.placeholder.com/160x120?text=加载失败'" 
+               style="transform:rotate(${thumbRotationAngle}deg)" />
           <div class="filename">${file.name}</div>
           <button onclick="event.stopPropagation(); deleteImage('${file.name}')">删除</button>
           <button onclick="event.stopPropagation(); downloadImage('${file.name}')">下载</button>
@@ -552,27 +646,21 @@ async function calculatePHash(filename) {
   if (pHashCache.has(filename)) return pHashCache.get(filename);
 
   try {
-    // 1. 处理跨域图片：通过代理加载（避免Canvas污染）
     const imgUrl = `${R2_PUBLIC_URL}/${encodeURIComponent(filename)}`;
     const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(imgUrl)}&output=png`;
-
-    // 2. 加载图片
     const img = new Image();
-    img.crossOrigin = 'anonymous'; // 允许跨域
+    img.crossOrigin = 'anonymous';
     img.src = proxyUrl;
     await new Promise((resolve, reject) => {
       img.onload = resolve;
       img.onerror = () => reject(new Error('图片加载失败'));
     });
 
-    // 3. Canvas缩放到8x8（pHash标准尺寸）
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     canvas.width = 8;
     canvas.height = 8;
     ctx.drawImage(img, 0, 0, 8, 8);
-
-    // 4. 提取像素并转灰度图
     const pixelData = ctx.getImageData(0, 0, 8, 8).data;
     const grayscale = [];
     for (let i = 0; i < pixelData.length; i += 4) {
@@ -580,10 +668,7 @@ async function calculatePHash(filename) {
       grayscale.push(gray);
     }
 
-    // 5. 计算灰度平均值
     const avgGray = grayscale.reduce((a, b) => a + b) / grayscale.length;
-
-    // 6. 生成64位pHash
     let pHash = '';
     grayscale.forEach(gray => {
       pHash += gray >= avgGray ? '1' : '0';
@@ -752,15 +837,9 @@ async function calculateAllPHash() {
       }
     }
 
-    // 获取当前页码
+    // 修复：页码获取函数，使用全局变量，彻底解决失效问题
     function getCurrentPage() {
-      const paginationBtns = document.querySelectorAll('#pagination button');
-      for (const btn of paginationBtns) {
-        if (btn.style.background === 'rgb(66, 133, 244)') {
-          return parseInt(btn.textContent);
-        }
-      }
-      return 1;
+      return currentPage;
     }
 
     // ========== 文本查重逻辑 ==========
@@ -1181,80 +1260,6 @@ async function calculateAllPHash() {
       updateSelectionUI();
       alert(`删除完成！成功: ${successCount} 个，失败: ${files.length - successCount} 个`);
     }
-// 在现有JS代码基础上添加以下功能
-  document.addEventListener('DOMContentLoaded', function() {
-    // 旋转角度状态
-    let rotationAngle = 0;
-    
-    // 获取DOM元素
-    const rotateLeftBtn = document.getElementById('rotateLeft');
-    const rotateRightBtn = document.getElementById('rotateRight');
-    const gallery = document.getElementById('gallery');
-    const modal = document.getElementById('imageModal');
-    const modalImage = document.getElementById('modalImage');
-    const closeBtn = document.querySelector('.close');
-
-    // 旋转功能实现
-    rotateLeftBtn.addEventListener('click', () => {
-      rotationAngle = (rotationAngle - 90) % 360;
-      applyRotation();
-    });
-
-    rotateRightBtn.addEventListener('click', () => {
-      rotationAngle = (rotationAngle + 90) % 360;
-      applyRotation();
-    });
-
-    // 应用旋转角度到所有图片
-    function applyRotation() {
-      const images = gallery.querySelectorAll('img');
-      images.forEach(img => {
-        img.style.transform = `rotate(${rotationAngle}deg)`;
-      });
-    }
-
-    // 原图查看功能
-    gallery.addEventListener('click', (e) => {
-      if (e.target.tagName === 'IMG') {
-        // 提取原图URL（去掉缩略图参数）
-        const originalUrl = e.target.src.replace('?thumb=true', '');
-        modalImage.src = originalUrl;
-        modal.style.display = 'block';
-      }
-    });
-
-    // 关闭模态框
-    closeBtn.addEventListener('click', () => {
-      modal.style.display = 'none';
-    });
-
-    // 点击模态框外部关闭
-    window.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.style.display = 'none';
-      }
-    });
-
-    // 在原有渲染图片的函数中保持图片旋转状态
-    function renderFiles(files) {
-      gallery.innerHTML = '';
-      files.forEach(file => {
-        const imgContainer = document.createElement('div');
-        imgContainer.className = 'image-item';
-        
-        const img = document.createElement('img');
-        img.src = `/file/${encodeURIComponent(file.name)}?thumb=true`;
-        img.alt = file.name;
-        img.title = `名称: ${file.name}\n大小: ${formatSize(file.size)}\n上传时间: ${new Date(file.uploaded).toLocaleString()}`;
-        // 应用当前旋转角度
-        img.style.transform = `rotate(${rotationAngle}deg)`;
-        
-        imgContainer.appendChild(img);
-        gallery.appendChild(imgContainer);
-      });
-    }
-
-});
     
   </script>
 </body>
