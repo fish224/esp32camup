@@ -1,0 +1,33 @@
+#EXTM3U
+#EXTINF:-1,CCTV1 综合
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226016/index.m3u8
+#EXTINF:-1,CCTV2 财经
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221225588/index.m3u8
+#EXTINF:-1,CCTV3 综艺
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221225592/index.m3u8
+#EXTINF:-1,CCTV4 中文国际
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221225593/index.m3u8
+#EXTINF:-1,CCTV5 体育
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226019/index.m3u8
+#EXTINF:-1,CCTV5+ 体育赛事
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226020/index.m3u8
+#EXTINF:-1,CCTV6 电影
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226775/index.m3u8
+#EXTINF:-1,CCTV7 国防军事
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226776/index.m3u8
+#EXTINF:-1,CCTV8 电视剧
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226777/index.m3u8
+#EXTINF:-1,CCTV9 纪录
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226779/index.m3u8
+#EXTINF:-1,CCTV10 科教
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226022/index.m3u8
+#EXTINF:-1,CCTV11 戏曲
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226780/index.m3u8
+#EXTINF:-1,CCTV12 社会与法
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226023/index.m3u8
+#EXTINF:-1,CCTV13 新闻
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226025/index.m3u8
+#EXTINF:-1,CCTV14 少儿
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226026/index.m3u8
+#EXTINF:-1,CCTV15 音乐
+http://ottrrs.hl.chinamobile.com/pltv/88888888/224/3221226027/index.m3u8
